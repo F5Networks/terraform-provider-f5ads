@@ -11,11 +11,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
@@ -72,6 +74,9 @@ func (p *nginxaasProvider) Schema(_ context.Context, _ provider.SchemaRequest, r
 			"geo": schema.StringAttribute{
 				Optional:    true,
 				Description: "API endpoint of the F5 ADS Geography (e.g. \"us\", \"eu\"). Can also be set with the F5ADS_GEO environment variable.",
+				Validators: []validator.String{
+					stringvalidator.OneOf("us", "eu", "apac"),
+				},
 			},
 			"client_id": schema.StringAttribute{
 				Optional:    true,

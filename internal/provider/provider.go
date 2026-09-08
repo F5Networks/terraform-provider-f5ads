@@ -222,11 +222,17 @@ func (p *nginxaasProvider) Configure(ctx context.Context, req provider.Configure
 
 	deploymentsHost := baseURL.JoinPath(deploymentsAPIVersion, "namespaces", namespace)
 
+	userAgent := fmt.Sprintf(
+		"terraform-provider-f5ads/%s; Terraform/%s",
+		p.version,
+		req.TerraformVersion,
+	)
 	client, err := deployments.NewClientWithResponses(
 		deploymentsHost.String(),
 		deployments.WithRequestEditorFn(
 			func(ctx context.Context, req *http.Request) error {
 				req.Header.Add("Authorization", "Bearer "+token)
+				req.Header.Add("User-Agent", userAgent)
 				return nil
 			},
 		),

@@ -189,6 +189,9 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 							"f5ads_service_account_unique_id": schema.StringAttribute{
 								Computed:    true,
 								Description: "Unique numeric ID of the Google Cloud service account created by F5 ADS for this deployment. Use this value in GCP IAM bindings.",
+								PlanModifiers: []planmodifier.String{
+									stringplanmodifier.UseNonNullStateForUnknown(),
+								},
 							},
 						},
 					},
@@ -204,7 +207,7 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 										Computed:    true,
 										Description: "Public DNS hostname assigned to the managed endpoint by F5 ADS.",
 										PlanModifiers: []planmodifier.String{
-											stringplanmodifier.UseStateForUnknown(),
+											stringplanmodifier.UseNonNullStateForUnknown(),
 										},
 									},
 									"acl": schema.ListNestedAttribute{
@@ -238,7 +241,7 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 										Computed:    true,
 										Description: "Google service attachment created by F5 ADS for the private endpoint.",
 										PlanModifiers: []planmodifier.String{
-											stringplanmodifier.UseStateForUnknown(),
+											stringplanmodifier.UseNonNullStateForUnknown(),
 										},
 									},
 									"service_attachment_accept_list": schema.ListAttribute{

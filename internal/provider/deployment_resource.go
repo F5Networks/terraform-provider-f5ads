@@ -791,16 +791,16 @@ func (r *deploymentResource) Configure(_ context.Context, req resource.Configure
 		return
 	}
 
-	client, ok := req.ProviderData.(*deployments.ClientWithResponses)
+	clients, ok := req.ProviderData.(*apiClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *deployments.ClientWithResponses, got: %T. Please report this issue to the provider.", req.ProviderData),
+			fmt.Sprintf("Expected *apiClients, got: %T. Please report this issue to the provider.", req.ProviderData),
 		)
 		return
 	}
 
-	r.client = client
+	r.client = clients.Deployments
 }
 
 func (r *deploymentResource) ConfigValidators(

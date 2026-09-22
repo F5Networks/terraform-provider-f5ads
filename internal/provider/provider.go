@@ -21,8 +21,16 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
+	configs "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/configs/2026-07-31"
 	deployments "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/deployments/2026-07-31"
 )
+
+// apiClients bundles the generated API clients that are shared with resources
+// and data sources during their Configure phase.
+type apiClients struct {
+	Deployments *deployments.ClientWithResponses
+	Configs     *configs.ClientWithResponses
+}
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
@@ -227,17 +235,16 @@ func (p *nginxaasProvider) Configure(ctx context.Context, req provider.Configure
 		p.version,
 		req.TerraformVersion,
 	)
-	client, err := deployments.NewClientWithResponses(
-		deploymentsHost.String(),
-		deployments.WithRequestEditorFn(
-			func(ctx context.Context, req *http.Request) error {
-				req.Header.Add("Authorization", "Bearer "+token)
-				req.Header.Add("User-Agent", userAgent)
-				return nil
-			},
-		),
-	)
+	authEditor := func(ctx context.Context, req *http.Request) error {
+		req.Header.Add("Authorization", "Bearer "+token)
+		req.Header.Add("User-Agent", userAgent)
+		return nil
+	}
 
+	deploymentsClient, err := deployments.NewClientWithResponses(
+		deploymentsHost.String(),
+		deployments.WithRequestEditorFn(authEditor),
+	)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to create F5 ADS API client",
@@ -248,10 +255,28 @@ func (p *nginxaasProvider) Configure(ctx context.Context, req provider.Configure
 		return
 	}
 
-	// Make the F5 ADS API client available during DataSource and Resource type
+	configsClient, err := configs.NewClientWithResponses(
+		deploymentsHost.String(),
+		configs.WithRequestEditorFn(authEditor),
+	)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to create F5 ADS API client",
+			"An unexpected error occurred when creating the F5 ADS API client. "+
+				"If the error is not clear, please report the issue to the provider developers.\n\n"+
+				"F5 ADS API client error: "+err.Error(),
+		)
+		return
+	}
+
+	// Make the API clients available during DataSource and Resource type
 	// Configure methods.
-	resp.DataSourceData = client
-	resp.ResourceData = client
+	clients := &apiClients{
+		Deployments: deploymentsClient,
+		Configs:     configsClient,
+	}
+	resp.DataSourceData = clients
+	resp.ResourceData = clients
 
 	tflog.Info(ctx, "Configured F5 ADS client", map[string]any{"success": true})
 }
@@ -329,5 +354,6 @@ func (p *nginxaasProvider) DataSources(_ context.Context) []func() datasource.Da
 func (p *nginxaasProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewDeploymentResource,
+		NewConfigResource,
 	}
 }

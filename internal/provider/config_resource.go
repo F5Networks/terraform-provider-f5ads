@@ -2,13 +2,18 @@ package provider
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 
 	configs "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/configs/2026-07-31"
 	naas "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/naas"
 	objects "github.com/F5Networks/terraform-provider-f5ads/internal/provider/objects"
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -21,16 +26,33 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Ensure configResource satisfies the expected interfaces.
-var (
-	_ resource.Resource                = &configResource{}
-	_ resource.ResourceWithConfigure   = &configResource{}
-	_ resource.ResourceWithImportState = &configResource{}
+const (
+	nameMinLength       = 3
+	nameMaxLength       = 30
+	nameSuffixBytes     = 4
+	nameSuffixLength    = 1 + nameSuffixBytes*2
+	namePrefixMaxLength = nameMaxLength - nameSuffixLength
+
+	// nginxConfPath is the only main NGINX configuration file path accepted by
+	// F5 ADS.
+	nginxConfPath = "/etc/nginx/nginx.conf"
 )
 
-// nginxConfPath is the only main NGINX configuration file path accepted by
-// F5 ADS.
-const nginxConfPath = "/etc/nginx/nginx.conf"
+// nameRegex matches the names accepted by F5 ADS: they must start with a
+// lowercase letter, end with a lowercase letter or digit, and otherwise
+// contain only lowercase letters, digits, and hyphens.
+var nameRegex = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
+
+// namePrefixRegex matches valid prefixes.
+var namePrefixRegex = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// Ensure configResource satisfies the expected interfaces.
+var (
+	_ resource.Resource                     = &configResource{}
+	_ resource.ResourceWithConfigure        = &configResource{}
+	_ resource.ResourceWithImportState      = &configResource{}
+	_ resource.ResourceWithConfigValidators = &configResource{}
+)
 
 // NewConfigResource is a helper function to simplify the provider implementation.
 func NewConfigResource() resource.Resource {
@@ -46,6 +68,7 @@ type configResource struct {
 type configResourceModel struct {
 	Id              types.String       `tfsdk:"id"`
 	Name            types.String       `tfsdk:"name"`
+	NamePrefix      types.String       `tfsdk:"name_prefix"`
 	Description     types.String       `tfsdk:"description"`
 	OrganizationID  types.String       `tfsdk:"organization_id"`
 	LatestVersionID types.String       `tfsdk:"latest_version_id"`
@@ -90,13 +113,38 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				},
 			},
 			"name": schema.StringAttribute{
-				Required:    true,
-				Description: "Unique name for the NGINX configuration. Changing this value forces a new resource to be created.",
+				Optional: true,
+				Computed: true,
+				Description: "Unique name for the NGINX configuration. Must be 3-30 characters, start with a " +
+					"lowercase letter, end with a lowercase letter or digit, and contain only lowercase " +
+					"letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set. ",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+					stringplanmodifier.RequiresReplace(),
+				},
+				Validators: []validator.String{
+					stringvalidator.LengthBetween(nameMinLength, nameMaxLength),
+					stringvalidator.RegexMatches(
+						nameRegex,
+						"must start with a lowercase letter, end with a lowercase letter or digit, and contain "+
+							"only lowercase letters, digits, and hyphens",
+					),
+				},
+			},
+			"name_prefix": schema.StringAttribute{
+				Optional: true,
+				Description: "Creates a unique name for the NGINX configuration beginning with this prefix. " +
+					"Must start with a lowercase letter and contain only lowercase letters, digits, and hyphens. " +
+					"Exactly one of `name` or `name_prefix` must be set.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 				Validators: []validator.String{
-					stringvalidator.LengthAtLeast(1),
+					stringvalidator.LengthBetween(1, namePrefixMaxLength),
+					stringvalidator.RegexMatches(
+						namePrefixRegex,
+						"must start with a lowercase letter and contain only lowercase letters, digits, and hyphens",
+					),
 				},
 			},
 			"description": schema.StringAttribute{
@@ -176,6 +224,15 @@ func (r *configResource) Configure(_ context.Context, req resource.ConfigureRequ
 	r.client = clients.Configs
 }
 
+func (r *configResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.ExactlyOneOf(
+			path.MatchRoot("name"),
+			path.MatchRoot("name_prefix"),
+		),
+	}
+}
+
 // Create creates the resource and sets in the terraform configuration.
 func (r *configResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan configResourceModel
@@ -183,6 +240,20 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+
+	// When user input the name_prefix instead of name, generate a
+	// unique name by appending a random suffix to the prefix.
+	if plan.Name.IsUnknown() || plan.Name.IsNull() {
+		name, err := generateNameWithPrefix(plan.NamePrefix.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to generate NGINX config name",
+				err.Error(),
+			)
+			return
+		}
+		plan.Name = types.StringValue(name)
 	}
 
 	configDirs, err := configsToAPI(plan.Configs)
@@ -401,6 +472,35 @@ func (r *configResource) Delete(_ context.Context, _ resource.DeleteRequest, res
 // ImportState imports an existing NGINX config into Terraform state by its ID.
 func (r *configResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// generateNameWithPrefix returns prefix followed by a "-" separator and a
+// random hex suffix.
+func generateNameWithPrefix(prefix string) (string, error) {
+	if len(prefix) > namePrefixMaxLength {
+		return "", fmt.Errorf(
+			"name_prefix %q must be at most %d characters so the generated name fits the %d character limit",
+			prefix, namePrefixMaxLength, nameMaxLength,
+		)
+	}
+
+	suffix := make([]byte, nameSuffixBytes)
+	if _, err := rand.Read(suffix); err != nil {
+		return "", fmt.Errorf("unable to generate random name suffix: %w", err)
+	}
+
+	// Avoid a doubled separator when the prefix already ends with one.
+	name := fmt.Sprintf("%s-%s", strings.TrimSuffix(prefix, "-"), hex.EncodeToString(suffix))
+
+	if !nameRegex.MatchString(name) || len(name) < nameMinLength || len(name) > nameMaxLength {
+		return "", fmt.Errorf(
+			"generated name %q is not a valid NGINX configuration name: "+
+				"it must be %d-%d characters and match %s",
+			name, nameMinLength, nameMaxLength, nameRegex,
+		)
+	}
+
+	return name, nil
 }
 
 // configsToAPI converts the configuration file groups from the Terraform

@@ -75,7 +75,7 @@ resource "f5ads_configuration" "example2" {
 ### Read-Only
 
 - `id` (String) Unique identifier for the NGINX configuration, assigned by F5 ADS.
-- `latest_version_id` (String) Identifier of the latest version of the NGINX configuration.
+- `latest_version_id` (String) Identifier of the latest version of the NGINX configuration. Every update fully replaces the configuration and therefore creates a new version.
 - `organization_id` (String) Identifier of the organization that owns the NGINX configuration.
 
 <a id="nestedatt--configs"></a>

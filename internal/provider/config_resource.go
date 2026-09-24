@@ -549,11 +549,41 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 }
 
 // Delete deletes the resource and removes the Terraform state on success.
-func (r *configResource) Delete(_ context.Context, _ resource.DeleteRequest, resp *resource.DeleteResponse) {
-	resp.Diagnostics.AddWarning(
-		"TODO",
-		"implementing delete functionality is pending.",
-	)
+func (r *configResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state configResourceModel
+	diags := req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	configObjectID, err := objects.Parse(state.Id.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to parse NGINX config Object ID",
+			err.Error(),
+		)
+		return
+	}
+
+	deleted, err := r.client.DeleteNginxConfigWithResponse(ctx, *configObjectID)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to delete NGINX config",
+			err.Error(),
+		)
+		return
+	}
+
+	switch deleted.StatusCode() {
+	case http.StatusOK, http.StatusNoContent, http.StatusAccepted:
+	case http.StatusNotFound:
+	default:
+		resp.Diagnostics.AddError(
+			"Unable to delete NGINX config",
+			fmt.Sprintf("status: %d, body: %s", deleted.StatusCode(), deleted.Body),
+		)
+	}
 }
 
 // ImportState imports an existing NGINX config into Terraform state by its ID.

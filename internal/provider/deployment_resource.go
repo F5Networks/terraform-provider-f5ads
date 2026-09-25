@@ -22,7 +22,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Ensure orderResource satisfies the expected interface.
+// Ensure deploymentResource satisfies the expected interface.
 
 var (
 	_ resource.Resource                     = &deploymentResource{}
@@ -791,16 +791,16 @@ func (r *deploymentResource) Configure(_ context.Context, req resource.Configure
 		return
 	}
 
-	client, ok := req.ProviderData.(*deployments.ClientWithResponses)
+	client, ok := req.ProviderData.(*clients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *deployments.ClientWithResponses, got: %T. Please report this issue to the provider.", req.ProviderData),
+			fmt.Sprintf("Expected *clients, got: %T. Please report this issue to the provider.", req.ProviderData),
 		)
 		return
 	}
 
-	r.client = client
+	r.client = client.deployments
 }
 
 func (r *deploymentResource) ConfigValidators(

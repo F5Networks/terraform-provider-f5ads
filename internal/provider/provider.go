@@ -21,6 +21,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
+	certificates "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/certificates/2026-07-31"
 	deployments "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/deployments/2026-07-31"
 )
 
@@ -30,10 +31,11 @@ var (
 )
 
 const (
-	deploymentsAPIVersion = "api/2026-07-31"
-	authAPIVersion        = "api/v1"
-	namespace             = "default"
-	apiDomain             = "api.nginxaas.net"
+	deploymentsAPIVersion  = "api/2026-07-31"
+	certificatesAPIVersion = "api/2026-07-31"
+	authAPIVersion         = "api/v1"
+	namespace              = "default"
+	apiDomain              = "api.nginxaas.net"
 )
 
 // New is a helper function to simplify provider server and testing implementation.
@@ -51,6 +53,11 @@ type nginxaasProvider struct {
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
 	version string
+}
+
+type clients struct {
+	deployments  *deployments.ClientWithResponses
+	certificates *certificates.ClientWithResponses
 }
 
 type nginxaasProviderModel struct {
@@ -197,8 +204,6 @@ func (p *nginxaasProvider) Configure(ctx context.Context, req provider.Configure
 
 	tflog.Debug(ctx, "Creating F5 ADS client")
 
-	// Create a new F5 ADS API client using the configuration values.
-	// This could be a set of clients, i.e., deployments, certs, configs.
 	baseURL, err := url.Parse(fmt.Sprintf("https://%s.%s", geo, apiDomain))
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -221,13 +226,14 @@ func (p *nginxaasProvider) Configure(ctx context.Context, req provider.Configure
 	}
 
 	deploymentsHost := baseURL.JoinPath(deploymentsAPIVersion, "namespaces", namespace)
+	certificatesHost := baseURL.JoinPath(certificatesAPIVersion, "namespaces", namespace)
 
 	userAgent := fmt.Sprintf(
 		"terraform-provider-f5ads/%s; Terraform/%s",
 		p.version,
 		req.TerraformVersion,
 	)
-	client, err := deployments.NewClientWithResponses(
+	depClient, err := deployments.NewClientWithResponses(
 		deploymentsHost.String(),
 		deployments.WithRequestEditorFn(
 			func(ctx context.Context, req *http.Request) error {
@@ -237,7 +243,6 @@ func (p *nginxaasProvider) Configure(ctx context.Context, req provider.Configure
 			},
 		),
 	)
-
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to create F5 ADS API client",
@@ -246,6 +251,31 @@ func (p *nginxaasProvider) Configure(ctx context.Context, req provider.Configure
 				"F5 ADS API client error: "+err.Error(),
 		)
 		return
+	}
+
+	certClient, err := certificates.NewClientWithResponses(
+		certificatesHost.String(),
+		certificates.WithRequestEditorFn(
+			func(ctx context.Context, req *http.Request) error {
+				req.Header.Add("Authorization", "Bearer "+token)
+				req.Header.Add("User-Agent", userAgent)
+				return nil
+			},
+		),
+	)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to create F5 ADS API client",
+			"An unexpected error occurred when creating the F5 ADS API client. "+
+				"If the error is not clear, please report the issue to the provider developers.\n\n"+
+				"F5 ADS API client error: "+err.Error(),
+		)
+		return
+	}
+
+	client := &clients{
+		deployments:  depClient,
+		certificates: certClient,
 	}
 
 	// Make the F5 ADS API client available during DataSource and Resource type
@@ -329,5 +359,6 @@ func (p *nginxaasProvider) DataSources(_ context.Context) []func() datasource.Da
 func (p *nginxaasProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewDeploymentResource,
+		NewCertificateResource,
 	}
 }

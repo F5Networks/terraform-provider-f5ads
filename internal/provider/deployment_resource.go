@@ -21,7 +21,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Ensure orderResource satisfies the expected interface.
+// Ensure deploymentResource satisfies the expected interface.
 
 var (
 	_ resource.Resource                   = &deploymentResource{}

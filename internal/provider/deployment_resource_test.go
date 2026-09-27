@@ -276,6 +276,144 @@ func TestAccDeploymentResourceGoogleManagedPublicEndpoint(t *testing.T) {
 	})
 }
 
+func awsManagedPublicEndpointDeployment(nameSuffix int) string {
+	return fmt.Sprintf(
+		`
+%s
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-%[2]d"
+  capacity = 10
+  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
+  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  aws_cloud_properties = {
+	region = "us-east-1"
+	ipv4_cidr_block = "10.0.0.0/24"
+	frontend = {
+	  managed_public_endpoint = {
+		acl = [
+		  {
+			source_prefixes = [
+			  "0.0.0.0/0",
+			]
+			port_range = "80"
+			protocol = "tcp"
+		  }
+		]
+	  }
+	}
+  }
+}
+`, providerConfig, nameSuffix)
+}
+
+func awsManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix int) string {
+	return fmt.Sprintf(
+		`
+%s
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-%[2]d"
+  capacity = 20
+  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
+  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  aws_cloud_properties = {
+	region = "us-east-1"
+	ipv4_cidr_block = "10.0.0.0/24"
+	frontend = {
+	  managed_public_endpoint = {
+		acl = [
+		  {
+			source_prefixes = [
+			  "0.0.0.0/0",
+			]
+			port_range = "80"
+			protocol = "tcp"
+		  }
+		]
+	  }
+	}
+  }
+}
+`, providerConfig, nameSuffix)
+}
+
+func awsManagedPublicEndpointDeploymentUpdateWaf(nameSuffix int) string {
+	return fmt.Sprintf(
+		`
+%s
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-%[2]d"
+  capacity = 20
+  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
+  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  waf_enabled = true
+  aws_cloud_properties = {
+	region = "us-east-1"
+	ipv4_cidr_block = "10.0.0.0/24"
+	frontend = {
+	  managed_public_endpoint = {
+		acl = [
+		  {
+			source_prefixes = [
+			  "0.0.0.0/0",
+			]
+			port_range = "80"
+			protocol = "tcp"
+		  }
+		]
+	  }
+	}
+  }
+}
+`, providerConfig, nameSuffix)
+}
+
+func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
+	nameSuffix := randomNameSuffix()
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: awsManagedPublicEndpointDeployment(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "10"),
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "waf_enabled"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "cloud", "aws"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.region", "us-east-1"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.ipv4_cidr_block", "10.0.0.0/24"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.frontend.managed_public_endpoint.acl.#", "1"),
+					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "id"),
+					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "aws_cloud_properties.frontend.managed_public_endpoint.service_endpoint"),
+				),
+			},
+			{
+				ResourceName:      "f5ads_deployment.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: awsManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "20"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.region", "us-east-1"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.ipv4_cidr_block", "10.0.0.0/24"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.frontend.managed_public_endpoint.acl.#", "1"),
+				),
+			},
+			{
+				Config: awsManagedPublicEndpointDeploymentUpdateWaf(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "waf_enabled", "true"),
+				),
+			},
+		},
+	})
+}
+
 func TestAccDeploymentResourceGooglePrivateEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
 	gcpProject := os.Getenv("GOOGLE_PROJECT")

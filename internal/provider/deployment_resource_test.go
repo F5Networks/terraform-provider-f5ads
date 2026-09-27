@@ -205,7 +205,7 @@ resource "f5ads_deployment" "test" {
 func TestAccDeploymentResourceGoogleManagedPublicEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
 	gcpProject := os.Getenv("GOOGLE_PROJECT")
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		ExternalProviders: map[string]resource.ExternalProvider{
 			"google": {
@@ -372,7 +372,7 @@ resource "f5ads_deployment" "test" {
 
 func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
@@ -417,7 +417,7 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 func TestAccDeploymentResourceGooglePrivateEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
 	gcpProject := os.Getenv("GOOGLE_PROJECT")
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		ExternalProviders: map[string]resource.ExternalProvider{
 			"google": {
@@ -547,7 +547,7 @@ resource "f5ads_deployment" "test" {
 }
 
 func TestAccDeploymentResourceCloudExclusivityValidation(t *testing.T) {
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
@@ -565,7 +565,7 @@ func TestAccDeploymentResourceCloudExclusivityValidation(t *testing.T) {
 }
 
 func TestAccDeploymentResourceGoogleFrontendValidation(t *testing.T) {
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		ExternalProviders: map[string]resource.ExternalProvider{
 			"google": {

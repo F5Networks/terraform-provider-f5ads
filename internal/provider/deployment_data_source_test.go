@@ -10,7 +10,7 @@ import (
 
 func TestAccDeploymentDataSourceManagedPublicEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		ExternalProviders: map[string]resource.ExternalProvider{
 			"google": {
@@ -58,7 +58,7 @@ func TestAccDeploymentDataSourceManagedPublicEndpoint(t *testing.T) {
 func TestAccDeploymentDataSourcePrivateEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
 	gcpProject := os.Getenv("GOOGLE_PROJECT")
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		ExternalProviders: map[string]resource.ExternalProvider{
 			"google": {

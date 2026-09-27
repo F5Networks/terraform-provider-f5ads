@@ -52,3 +52,33 @@ resource "f5ads_deployment" "private_endpoint" {
     }
   }
 }
+
+# Example F5 ADS AWS deployment with Managed Public Endpoint.
+resource "f5ads_deployment" "aws_managed_public_endpoint" {
+  name                    = "aws-mpe-deployment"
+  capacity                = 20
+  waf_enabled             = true
+  nginx_config_id         = "cfg_OeHBf40jQFqaRmOBhPP_bw"
+  nginx_config_version_id = "cv_xFo0zPcjS2OnxH8IJ6ZJjg"
+
+  aws_cloud_properties = {
+    region          = "us-east-1"
+    ipv4_cidr_block = "10.0.0.0/24"
+    frontend = {
+      managed_public_endpoint = {
+        acl = [
+          {
+            source_prefixes = ["0.0.0.0/0"]
+            port_range      = "80"
+            protocol        = "tcp"
+          },
+          {
+            source_prefixes = ["0.0.0.0/0"]
+            port_range      = "443"
+            protocol        = "tcp"
+          },
+        ]
+      }
+    }
+  }
+}

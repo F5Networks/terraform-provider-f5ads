@@ -360,6 +360,72 @@ resource "f5ads_deployment" "test" {
 `, baseGcpConfig(1), providerConfig)
 }
 
+func deploymentWithoutCloudProperties() string {
+	return fmt.Sprintf(
+		`
+%s
+
+resource "f5ads_deployment" "test" {
+  name                    = "nginxacc-without-cloud"
+  capacity                = 10
+  nginx_config_id         = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
+  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+}
+`, providerConfig)
+}
+
+func deploymentWithBothCloudProperties() string {
+	return fmt.Sprintf(
+		`
+%s
+
+resource "f5ads_deployment" "test" {
+  name                    = "nginxacc-with-both-clouds"
+  capacity                = 10
+  nginx_config_id         = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
+  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+
+  google_cloud_properties = {
+    region             = "us-east1"
+    network_attachment = "projects/my-project/regions/us-east1/networkAttachments/my-network-attachment"
+    frontend = {
+      managed_public_endpoint = {
+        acl = []
+      }
+    }
+  }
+
+  aws_cloud_properties = {
+    region          = "us-east-1"
+    ipv4_cidr_block = "10.0.0.0/24"
+    frontend = {
+      managed_public_endpoint = {
+        acl = []
+      }
+    }
+  }
+}
+`, providerConfig)
+}
+
+func TestAccDeploymentResourceCloudExclusivityValidation(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      deploymentWithoutCloudProperties(),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`Either google_cloud_properties or aws_cloud_properties must be specified`),
+			},
+			{
+				Config:      deploymentWithBothCloudProperties(),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`Only one of google_cloud_properties or aws_cloud_properties can be specified`),
+			},
+		},
+	})
+}
+
 func TestAccDeploymentResourceGoogleFrontendValidation(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -373,12 +439,12 @@ func TestAccDeploymentResourceGoogleFrontendValidation(t *testing.T) {
 			{
 				Config:      googleCloudDeploymentWithoutFrontendEndpoint(),
 				PlanOnly:    true,
-				ExpectError: regexp.MustCompile(`Exactly one of these attributes must be configured:\s*\[google_cloud_properties\.frontend\.managed_public_endpoint,google_cloud_properties\.frontend\.private_endpoint\]`),
+				ExpectError: regexp.MustCompile(`Either managed_public_endpoint or private_endpoint must be specified within\s*the frontend block of google_cloud_properties`),
 			},
 			{
 				Config:      googleCloudDeploymentWithBothFrontendEndpoints(),
 				PlanOnly:    true,
-				ExpectError: regexp.MustCompile(`Exactly one of these attributes must be configured:\s*\[google_cloud_properties\.frontend\.managed_public_endpoint,google_cloud_properties\.frontend\.private_endpoint\]`),
+				ExpectError: regexp.MustCompile(`Only one of managed_public_endpoint or private_endpoint can be specified\s*within the frontend block of google_cloud_properties`),
 			},
 		},
 	})

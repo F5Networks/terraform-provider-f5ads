@@ -205,7 +205,7 @@ resource "f5ads_deployment" "test" {
 func TestAccDeploymentResourceGoogleManagedPublicEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
 	gcpProject := os.Getenv("GOOGLE_PROJECT")
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		ExternalProviders: map[string]resource.ExternalProvider{
 			"google": {
@@ -276,10 +276,148 @@ func TestAccDeploymentResourceGoogleManagedPublicEndpoint(t *testing.T) {
 	})
 }
 
+func awsManagedPublicEndpointDeployment(nameSuffix int) string {
+	return fmt.Sprintf(
+		`
+%s
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-%[2]d"
+  capacity = 10
+  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
+  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  aws_cloud_properties = {
+	region = "us-east-1"
+	ipv4_cidr_block = "10.0.0.0/24"
+	frontend = {
+	  managed_public_endpoint = {
+		acl = [
+		  {
+			source_prefixes = [
+			  "0.0.0.0/0",
+			]
+			port_range = "80"
+			protocol = "tcp"
+		  }
+		]
+	  }
+	}
+  }
+}
+`, providerConfig, nameSuffix)
+}
+
+func awsManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix int) string {
+	return fmt.Sprintf(
+		`
+%s
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-%[2]d"
+  capacity = 20
+  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
+  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  aws_cloud_properties = {
+	region = "us-east-1"
+	ipv4_cidr_block = "10.0.0.0/24"
+	frontend = {
+	  managed_public_endpoint = {
+		acl = [
+		  {
+			source_prefixes = [
+			  "0.0.0.0/0",
+			]
+			port_range = "80"
+			protocol = "tcp"
+		  }
+		]
+	  }
+	}
+  }
+}
+`, providerConfig, nameSuffix)
+}
+
+func awsManagedPublicEndpointDeploymentUpdateWaf(nameSuffix int) string {
+	return fmt.Sprintf(
+		`
+%s
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-%[2]d"
+  capacity = 20
+  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
+  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  waf_enabled = true
+  aws_cloud_properties = {
+	region = "us-east-1"
+	ipv4_cidr_block = "10.0.0.0/24"
+	frontend = {
+	  managed_public_endpoint = {
+		acl = [
+		  {
+			source_prefixes = [
+			  "0.0.0.0/0",
+			]
+			port_range = "80"
+			protocol = "tcp"
+		  }
+		]
+	  }
+	}
+  }
+}
+`, providerConfig, nameSuffix)
+}
+
+func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
+	nameSuffix := randomNameSuffix()
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: awsManagedPublicEndpointDeployment(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "10"),
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "waf_enabled"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "cloud", "aws"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.region", "us-east-1"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.ipv4_cidr_block", "10.0.0.0/24"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.frontend.managed_public_endpoint.acl.#", "1"),
+					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "id"),
+					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "aws_cloud_properties.frontend.managed_public_endpoint.service_endpoint"),
+				),
+			},
+			{
+				ResourceName:      "f5ads_deployment.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: awsManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "20"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.region", "us-east-1"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.ipv4_cidr_block", "10.0.0.0/24"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.frontend.managed_public_endpoint.acl.#", "1"),
+				),
+			},
+			{
+				Config: awsManagedPublicEndpointDeploymentUpdateWaf(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "waf_enabled", "true"),
+				),
+			},
+		},
+	})
+}
+
 func TestAccDeploymentResourceGooglePrivateEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
 	gcpProject := os.Getenv("GOOGLE_PROJECT")
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		ExternalProviders: map[string]resource.ExternalProvider{
 			"google": {
@@ -360,8 +498,74 @@ resource "f5ads_deployment" "test" {
 `, baseGcpConfig(1), providerConfig)
 }
 
+func deploymentWithoutCloudProperties() string {
+	return fmt.Sprintf(
+		`
+%s
+
+resource "f5ads_deployment" "test" {
+  name                    = "nginxacc-without-cloud"
+  capacity                = 10
+  nginx_config_id         = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
+  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+}
+`, providerConfig)
+}
+
+func deploymentWithBothCloudProperties() string {
+	return fmt.Sprintf(
+		`
+%s
+
+resource "f5ads_deployment" "test" {
+  name                    = "nginxacc-with-both-clouds"
+  capacity                = 10
+  nginx_config_id         = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
+  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+
+  google_cloud_properties = {
+    region             = "us-east1"
+    network_attachment = "projects/my-project/regions/us-east1/networkAttachments/my-network-attachment"
+    frontend = {
+      managed_public_endpoint = {
+        acl = []
+      }
+    }
+  }
+
+  aws_cloud_properties = {
+    region          = "us-east-1"
+    ipv4_cidr_block = "10.0.0.0/24"
+    frontend = {
+      managed_public_endpoint = {
+        acl = []
+      }
+    }
+  }
+}
+`, providerConfig)
+}
+
+func TestAccDeploymentResourceCloudExclusivityValidation(t *testing.T) {
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      deploymentWithoutCloudProperties(),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`Either google_cloud_properties or aws_cloud_properties must be specified`),
+			},
+			{
+				Config:      deploymentWithBothCloudProperties(),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`Only one of google_cloud_properties or aws_cloud_properties can be specified`),
+			},
+		},
+	})
+}
+
 func TestAccDeploymentResourceGoogleFrontendValidation(t *testing.T) {
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		ExternalProviders: map[string]resource.ExternalProvider{
 			"google": {
@@ -373,12 +577,12 @@ func TestAccDeploymentResourceGoogleFrontendValidation(t *testing.T) {
 			{
 				Config:      googleCloudDeploymentWithoutFrontendEndpoint(),
 				PlanOnly:    true,
-				ExpectError: regexp.MustCompile(`Exactly one of these attributes must be configured:\s*\[google_cloud_properties\.frontend\.managed_public_endpoint,google_cloud_properties\.frontend\.private_endpoint\]`),
+				ExpectError: regexp.MustCompile(`Either managed_public_endpoint or private_endpoint must be specified within\s*the frontend block of google_cloud_properties`),
 			},
 			{
 				Config:      googleCloudDeploymentWithBothFrontendEndpoints(),
 				PlanOnly:    true,
-				ExpectError: regexp.MustCompile(`Exactly one of these attributes must be configured:\s*\[google_cloud_properties\.frontend\.managed_public_endpoint,google_cloud_properties\.frontend\.private_endpoint\]`),
+				ExpectError: regexp.MustCompile(`Only one of managed_public_endpoint or private_endpoint can be specified\s*within the frontend block of google_cloud_properties`),
 			},
 		},
 	})

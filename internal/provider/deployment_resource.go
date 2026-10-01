@@ -11,7 +11,6 @@ import (
 	objects "github.com/F5Networks/terraform-provider-f5ads/internal/provider/objects"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
-	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -25,10 +24,10 @@ import (
 // Ensure orderResource satisfies the expected interface.
 
 var (
-	_ resource.Resource                     = &deploymentResource{}
-	_ resource.ResourceWithConfigure        = &deploymentResource{}
-	_ resource.ResourceWithImportState      = &deploymentResource{}
-	_ resource.ResourceWithConfigValidators = &deploymentResource{}
+	_ resource.Resource                   = &deploymentResource{}
+	_ resource.ResourceWithConfigure      = &deploymentResource{}
+	_ resource.ResourceWithImportState    = &deploymentResource{}
+	_ resource.ResourceWithValidateConfig = &deploymentResource{}
 )
 
 // NewDeploymentResource is a helper function to simplify the provider implementation.
@@ -46,6 +45,7 @@ type deploymentResourceModel struct {
 	Name                  types.String                `tfsdk:"name"`
 	Cloud                 types.String                `tfsdk:"cloud"`
 	GoogleCloudProperties *GoogleCloudPropertiesModel `tfsdk:"google_cloud_properties"`
+	AwsCloudProperties    *AwsCloudPropertiesModel    `tfsdk:"aws_cloud_properties"`
 	Capacity              types.Int64                 `tfsdk:"capacity"`
 	NginxConfigID         types.String                `tfsdk:"nginx_config_id"`
 	NginxConfigVersionID  types.String                `tfsdk:"nginx_config_version_id"`
@@ -86,6 +86,16 @@ type ManagedPublicEndpointACLModel struct {
 type PrivateEndpointModel struct {
 	ServiceAttachment           types.String   `tfsdk:"service_attachment"`
 	ServiceAttachmentAcceptList []types.String `tfsdk:"service_attachment_accept_list"`
+}
+
+type AwsCloudPropertiesModel struct {
+	Region        types.String     `tfsdk:"region"`
+	Ipv4CidrBlock types.String     `tfsdk:"ipv4_cidr_block"`
+	Frontend      AwsFrontendModel `tfsdk:"frontend"`
+}
+
+type AwsFrontendModel struct {
+	ManagedPublicEndpoint *ManagedPublicEndpointModel `tfsdk:"managed_public_endpoint"`
 }
 
 // Metadata returns the name of the resource.
@@ -258,6 +268,66 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 					},
 				},
 			},
+			"aws_cloud_properties": schema.SingleNestedAttribute{
+				Optional:    true,
+				Description: "AWS-specific properties for the deployment. Required when deploying to AWS.",
+				Attributes: map[string]schema.Attribute{
+					"region": schema.StringAttribute{
+						Required:    true,
+						Description: "AWS region where the deployment is hosted (e.g. \"us-east-1\"). Changing this value forces a new resource to be created.",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+					},
+					"ipv4_cidr_block": schema.StringAttribute{
+						Required:    true,
+						Description: "IPv4 CIDR block for the AWS VPC used by the deployment. Changing this value forces a new resource to be created.",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+					},
+					"frontend": schema.SingleNestedAttribute{
+						Required:    true,
+						Description: "Frontend networking configuration for the deployment.",
+						Attributes: map[string]schema.Attribute{
+							"managed_public_endpoint": schema.SingleNestedAttribute{
+								Required:    true,
+								Description: "Configuration for a managed public endpoint that exposes the deployment to the internet.",
+								Attributes: map[string]schema.Attribute{
+									"service_endpoint": schema.StringAttribute{
+										Computed:    true,
+										Description: "Public DNS hostname assigned to the managed endpoint by F5 ADS.",
+										PlanModifiers: []planmodifier.String{
+											stringplanmodifier.UseNonNullStateForUnknown(),
+										},
+									},
+									"acl": schema.ListNestedAttribute{
+										Required:    true,
+										Description: "Access control rules that restrict inbound traffic to the managed public endpoint.",
+										NestedObject: schema.NestedAttributeObject{
+											Attributes: map[string]schema.Attribute{
+												"source_prefixes": schema.ListAttribute{
+													ElementType: types.StringType,
+													Required:    true,
+													Description: "List of source CIDR prefixes allowed by this ACL rule.",
+												},
+												"port_range": schema.StringAttribute{
+													Required:    true,
+													Description: "Port or port range this ACL rule applies to (e.g. \"80\" or \"8080-8090\").",
+												},
+												"protocol": schema.StringAttribute{
+													Required:    true,
+													Description: "Network protocol this ACL rule applies to (e.g. \"tcp\" or \"udp\").",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -350,6 +420,39 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 		}
 	}
 
+	if plan.AwsCloudProperties != nil {
+		depAwsCloudProperties := &deployments.CreateAWSDeploymentProperties{
+			Region:        plan.AwsCloudProperties.Region.ValueString(),
+			Ipv4CidrBlock: plan.AwsCloudProperties.Ipv4CidrBlock.ValueString(),
+		}
+
+		var depFrontendManagedPublicEndpoint *deployments.CreateManagedPublicEndpoint
+		if plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint != nil {
+			depFrontendManagedPublicEndpoint = &deployments.CreateManagedPublicEndpoint{}
+			acl := make([]deployments.ManagedPublicEndpointACLRule, 0)
+			if aclPlan := plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.Acl; len(aclPlan) > 0 {
+				for _, rule := range aclPlan {
+					sourcePrefixes := make([]string, 0, len(rule.SourcePrefixes))
+					for _, prefix := range rule.SourcePrefixes {
+						sourcePrefixes = append(sourcePrefixes, prefix.ValueString())
+					}
+					protocol := deployments.ManagedPublicEndpointACLRuleProtocol(rule.Protocol.ValueString())
+					acl = append(acl, deployments.ManagedPublicEndpointACLRule{
+						SourcePrefixes: sourcePrefixes,
+						PortRange:      rule.PortRange.ValueStringPointer(),
+						Protocol:       &protocol,
+					})
+				}
+			}
+			depFrontendManagedPublicEndpoint.Acl = acl
+			depAwsCloudProperties.Frontend.ManagedPublicEndpoint = depFrontendManagedPublicEndpoint
+		}
+
+		depReq.CloudProperties = deployments.CreateDeploymentCloudProperties{
+			Aws: depAwsCloudProperties,
+		}
+	}
+
 	dep, err := r.client.CreateDeploymentWithResponse(ctx, depReq)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -404,6 +507,13 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 		if plan.GoogleCloudProperties.Identity != nil {
 			plan.GoogleCloudProperties.Identity.NginxaasServiceAccountUniqueId = types.StringValue(
 				*deploymentResponse.CloudProperties.Google.Identity.NginxaasServiceAccountUniqueId)
+		}
+	}
+
+	if plan.AwsCloudProperties != nil {
+		if plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint != nil {
+			plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.ServiceEndpoint = types.StringValue(
+				*deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.ServiceEndpoint)
 		}
 	}
 
@@ -549,6 +659,42 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 		state.GoogleCloudProperties = &googleCloudProperties
 	}
 
+	if deploymentResponse.CloudProperties.Aws != nil {
+		var awsCloudProperties AwsCloudPropertiesModel
+		awsCloudProperties.Region = types.StringValue(deploymentResponse.CloudProperties.Aws.Region)
+		awsCloudProperties.Ipv4CidrBlock = types.StringValue(deploymentResponse.CloudProperties.Aws.Ipv4CidrBlock)
+
+		var frontend AwsFrontendModel
+		if deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint != nil {
+			var managedPublicEndpoint ManagedPublicEndpointModel
+			managedPublicEndpoint.ServiceEndpoint = types.StringValue(
+				*deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.ServiceEndpoint)
+			acl := make([]ManagedPublicEndpointACLModel, 0)
+			if aclResp := deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.Acl; len(aclResp) > 0 {
+				for _, rule := range aclResp {
+					var aclRule ManagedPublicEndpointACLModel
+					sourcePrefixes := make([]types.String, 0, len(rule.SourcePrefixes))
+					for _, prefix := range rule.SourcePrefixes {
+						sourcePrefixes = append(sourcePrefixes, types.StringValue(prefix))
+					}
+					aclRule.SourcePrefixes = sourcePrefixes
+					if rule.PortRange != nil {
+						aclRule.PortRange = types.StringValue(*rule.PortRange)
+					}
+					if rule.Protocol != nil {
+						aclRule.Protocol = types.StringValue(string(*rule.Protocol))
+					}
+					acl = append(acl, aclRule)
+				}
+			}
+			managedPublicEndpoint.Acl = acl
+			frontend.ManagedPublicEndpoint = &managedPublicEndpoint
+		}
+
+		awsCloudProperties.Frontend = frontend
+		state.AwsCloudProperties = &awsCloudProperties
+	}
+
 	// Set refreshed state.
 	diags = resp.State.Set(ctx, state)
 	resp.Diagnostics.Append(diags...)
@@ -673,6 +819,38 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 		}
 	}
 
+	if plan.AwsCloudProperties != nil {
+		var depFrontendManagedPublicEndpoint *deployments.UpdateManagedPublicEndpoint
+		if plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint != nil {
+			depFrontendManagedPublicEndpoint = &deployments.UpdateManagedPublicEndpoint{}
+			acl := make([]deployments.ManagedPublicEndpointACLRule, 0)
+			if aclPlan := plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.Acl; len(aclPlan) > 0 {
+				acl = make([]deployments.ManagedPublicEndpointACLRule, 0, len(aclPlan))
+				for _, rule := range aclPlan {
+					sourcePrefixes := make([]string, 0, len(rule.SourcePrefixes))
+					for _, prefix := range rule.SourcePrefixes {
+						sourcePrefixes = append(sourcePrefixes, prefix.ValueString())
+					}
+					protocol := deployments.ManagedPublicEndpointACLRuleProtocol(rule.Protocol.ValueString())
+					acl = append(acl, deployments.ManagedPublicEndpointACLRule{
+						SourcePrefixes: sourcePrefixes,
+						PortRange:      rule.PortRange.ValueStringPointer(),
+						Protocol:       &protocol,
+					})
+				}
+			}
+			depFrontendManagedPublicEndpoint.Acl = &acl
+		}
+
+		depUpdateReq.CloudProperties = &deployments.UpdateDeploymentCloudProperties{
+			Aws: &deployments.UpdateAWSDeploymentProperties{
+				Frontend: &deployments.UpdateAWSFrontendInfo{
+					ManagedPublicEndpoint: depFrontendManagedPublicEndpoint,
+				},
+			},
+		}
+	}
+
 	dep, err := r.client.UpdateDeploymentWithResponse(ctx, *deploymentObjectID, depUpdateReq)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -725,6 +903,13 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 		if plan.GoogleCloudProperties.Identity != nil {
 			plan.GoogleCloudProperties.Identity.NginxaasServiceAccountUniqueId = types.StringValue(
 				*deploymentResponse.CloudProperties.Google.Identity.NginxaasServiceAccountUniqueId)
+		}
+	}
+
+	if plan.AwsCloudProperties != nil {
+		if plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint != nil {
+			plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.ServiceEndpoint = types.StringValue(
+				*deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.ServiceEndpoint)
 		}
 	}
 
@@ -803,14 +988,49 @@ func (r *deploymentResource) Configure(_ context.Context, req resource.Configure
 	r.client = client
 }
 
-func (r *deploymentResource) ConfigValidators(
+func (r *deploymentResource) ValidateConfig(
 	ctx context.Context,
-) []resource.ConfigValidator {
-	return []resource.ConfigValidator{
-		resourcevalidator.ExactlyOneOf(
-			path.MatchRoot("google_cloud_properties").AtName("frontend").AtName("managed_public_endpoint"),
-			path.MatchRoot("google_cloud_properties").AtName("frontend").AtName("private_endpoint"),
-		),
+	req resource.ValidateConfigRequest,
+	resp *resource.ValidateConfigResponse,
+) {
+	var data deploymentResourceModel
+	diags := req.Config.Get(ctx, &data)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if data.GoogleCloudProperties == nil && data.AwsCloudProperties == nil {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"Either google_cloud_properties or aws_cloud_properties must be specified.",
+		)
+		return
+	}
+
+	if data.GoogleCloudProperties != nil && data.AwsCloudProperties != nil {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"Only one of google_cloud_properties or aws_cloud_properties can be specified.",
+		)
+		return
+	}
+
+	if data.GoogleCloudProperties != nil {
+		if data.GoogleCloudProperties.Frontend.ManagedPublicEndpoint == nil && data.GoogleCloudProperties.Frontend.PrivateEndpoint == nil {
+			resp.Diagnostics.AddError(
+				"Invalid Configuration",
+				"Either managed_public_endpoint or private_endpoint must be specified within the frontend block of google_cloud_properties.",
+			)
+			return
+		}
+		if data.GoogleCloudProperties.Frontend.ManagedPublicEndpoint != nil && data.GoogleCloudProperties.Frontend.PrivateEndpoint != nil {
+			resp.Diagnostics.AddError(
+				"Invalid Configuration",
+				"Only one of managed_public_endpoint or private_endpoint can be specified within the frontend block of google_cloud_properties.",
+			)
+			return
+		}
 	}
 }
 

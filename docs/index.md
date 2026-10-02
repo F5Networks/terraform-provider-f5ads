@@ -21,7 +21,7 @@ terraform {
 }
 
 provider "f5ads" {
-  geo           = "us"
+  geo           = "us" # One of "us", "eu", "apac", "ca"
   client_id     = var.f5ads_client_id
   client_secret = var.f5ads_client_secret
 }
@@ -34,4 +34,4 @@ provider "f5ads" {
 
 - `client_id` (String) Client ID for authenticating with the F5 ADS API. Can also be set with the F5ADS_CLIENT_ID environment variable.
 - `client_secret` (String, Sensitive) Client secret for authenticating with the F5 ADS API. Can also be set with the F5ADS_CLIENT_SECRET environment variable.
-- `geo` (String) API endpoint of the F5 ADS Geography (e.g. "us", "eu"). Can also be set with the F5ADS_GEO environment variable.
+- `geo` (String) API endpoint of the F5 ADS Geography. Valid values are "us", "eu", "apac", and "ca". Can also be set with the F5ADS_GEO environment variable.

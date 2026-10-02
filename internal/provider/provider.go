@@ -73,9 +73,9 @@ func (p *nginxaasProvider) Schema(_ context.Context, _ provider.SchemaRequest, r
 		Attributes: map[string]schema.Attribute{
 			"geo": schema.StringAttribute{
 				Optional:    true,
-				Description: "API endpoint of the F5 ADS Geography (e.g. \"us\", \"eu\"). Can also be set with the F5ADS_GEO environment variable.",
+				Description: "API endpoint of the F5 ADS Geography. Valid values are \"us\", \"eu\", \"apac\", and \"ca\". Can also be set with the F5ADS_GEO environment variable.",
 				Validators: []validator.String{
-					stringvalidator.OneOf("us", "eu", "apac"),
+					stringvalidator.OneOf("us", "eu", "apac", "ca"),
 				},
 			},
 			"client_id": schema.StringAttribute{

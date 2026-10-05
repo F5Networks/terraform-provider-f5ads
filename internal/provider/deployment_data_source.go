@@ -34,6 +34,7 @@ type deploymentDataSourceModel struct {
 	Id                    types.String                `tfsdk:"id"`
 	Name                  types.String                `tfsdk:"name"`
 	Cloud                 types.String                `tfsdk:"cloud"`
+	NginxTargetVersion    types.String                `tfsdk:"nginx_target_version"`
 	Capacity              types.Int64                 `tfsdk:"capacity"`
 	NginxConfigID         types.String                `tfsdk:"nginx_config_id"`
 	NginxConfigVersionID  types.String                `tfsdk:"nginx_config_version_id"`
@@ -63,6 +64,10 @@ func (d *deploymentDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 			"cloud": schema.StringAttribute{
 				Computed:    true,
 				Description: "Cloud provider hosting the deployment (e.g. \"google\").",
+			},
+			"nginx_target_version": schema.StringAttribute{
+				Computed:    true,
+				Description: "Target NGINX version for the deployment.",
 			},
 			"capacity": schema.Int64Attribute{
 				Computed:    true,
@@ -226,6 +231,7 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	state.Id = types.StringValue(deploymentResponse.Id.String())
 	state.Name = types.StringValue(deploymentResponse.Name)
 	state.Cloud = types.StringValue(string(deploymentResponse.Cloud))
+	state.NginxTargetVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
 	state.Capacity = types.Int64Value(int64(deploymentResponse.Scale.Capacity))
 	state.WafEnabled = types.BoolPointerValue(deploymentResponse.WafEnabled)
 	state.NginxConfigID = types.StringValue(deploymentResponse.NginxConfigId.String())

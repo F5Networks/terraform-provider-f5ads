@@ -218,6 +218,7 @@ func TestAccDeploymentResourceGoogleManagedPublicEndpoint(t *testing.T) {
 				Config: googleCloudManagedPublicEndpointDeployment(nameSuffix),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
+					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "nginx_target_version"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "10"),
 					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "waf_enabled"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "google_cloud_properties.region", "us-east1"),

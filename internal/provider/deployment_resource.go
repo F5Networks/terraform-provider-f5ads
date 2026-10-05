@@ -44,6 +44,7 @@ type deploymentResourceModel struct {
 	Id                    types.String                `tfsdk:"id"`
 	Name                  types.String                `tfsdk:"name"`
 	Cloud                 types.String                `tfsdk:"cloud"`
+	NginxTargetVersion    types.String                `tfsdk:"nginx_target_version"`
 	GoogleCloudProperties *GoogleCloudPropertiesModel `tfsdk:"google_cloud_properties"`
 	AwsCloudProperties    *AwsCloudPropertiesModel    `tfsdk:"aws_cloud_properties"`
 	Capacity              types.Int64                 `tfsdk:"capacity"`
@@ -129,6 +130,10 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
+			},
+			"nginx_target_version": schema.StringAttribute{
+				Computed:    true,
+				Description: "Target NGINX version for the deployment.",
 			},
 			"organization_id": schema.StringAttribute{
 				Computed:    true,
@@ -490,6 +495,7 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 	// map response body to model
 	plan.Id = types.StringValue(deploymentResponse.Id.String())
 	plan.Cloud = types.StringValue(string(deploymentResponse.Cloud))
+	plan.NginxTargetVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
 	plan.OrganizationID = types.StringValue(deploymentResponse.OrganizationId.String())
 	if plan.GoogleCloudProperties != nil {
 		if plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint != nil {
@@ -576,6 +582,7 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 	state.Id = types.StringValue(deploymentResponse.Id.String())
 	state.Name = types.StringValue(deploymentResponse.Name)
 	state.Cloud = types.StringValue(string(deploymentResponse.Cloud))
+	state.NginxTargetVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
 	state.Capacity = types.Int64Value(int64(deploymentResponse.Scale.Capacity))
 	state.NginxConfigID = types.StringValue(deploymentResponse.NginxConfigId.String())
 	state.NginxConfigVersionID = types.StringValue(deploymentResponse.NginxConfigVersionId.String())
@@ -888,6 +895,7 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 	// map response body to model
 	plan.Id = types.StringValue(deploymentResponse.Id.String())
 	plan.Cloud = types.StringValue(string(deploymentResponse.Cloud))
+	plan.NginxTargetVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
 	plan.OrganizationID = types.StringValue(deploymentResponse.OrganizationId.String())
 	if plan.GoogleCloudProperties != nil {
 		if plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint != nil {

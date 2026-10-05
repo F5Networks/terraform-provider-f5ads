@@ -33,6 +33,7 @@ data "f5ads_deployment" "example" {
 - `name` (String) Name of the deployment.
 - `nginx_config_id` (String) Identifier of the NGINX configuration applied to the deployment.
 - `nginx_config_version_id` (String) Identifier of the specific NGINX configuration version applied to the deployment.
+- `nginx_target_version` (String) Target NGINX version for the deployment.
 - `organization_id` (String) Identifier of the organization that owns the deployment.
 - `waf_enabled` (Boolean) Whether F5 WAF for NGINX is enabled for the deployment.
 

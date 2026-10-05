@@ -32,7 +32,7 @@ terraform {
 }
 
 provider "f5ads" {
-  geo   = "us"  # Geographic region (e.g., "us", "eu")
+  geo   = "us"  # Geographic region: "us", "eu", "apac", or "ca"
 }
 ```
 

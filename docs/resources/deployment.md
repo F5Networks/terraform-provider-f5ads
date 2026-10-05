@@ -119,6 +119,7 @@ resource "f5ads_deployment" "aws_managed_public_endpoint" {
 
 - `cloud` (String) Cloud provider hosting the deployment (e.g. "google").
 - `id` (String) Unique identifier for the deployment, assigned by F5 ADS.
+- `nginx_target_version` (String) Target NGINX version for the deployment.
 - `organization_id` (String) Identifier of the organization that owns the deployment.
 
 <a id="nestedatt--aws_cloud_properties"></a>

@@ -290,15 +290,14 @@ func exchangeClientCredentialsForToken(
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected auth token response status %d", resp.StatusCode)
-	}
-
 	// Limit to 8KB. The token response is small but in case the response footprint
 	// increases in the future, we have enough wiggle room to accommodate it.
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
 	if err != nil {
 		return "", fmt.Errorf("unable to read auth token response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected auth token response: %s", formatAPIError(resp.StatusCode, respBody))
 	}
 
 	type tokenResponse struct {

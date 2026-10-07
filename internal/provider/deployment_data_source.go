@@ -317,14 +317,14 @@ func (d *deploymentDataSource) Configure(ctx context.Context, req datasource.Con
 		return
 	}
 
-	client, ok := req.ProviderData.(*deployments.ClientWithResponses)
+	client, ok := req.ProviderData.(*clients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *deployments.ClientWithResponses, got: %T. Please report this issue to the provider.", req.ProviderData),
+			fmt.Sprintf("Expected *clients, got: %T. Please report this issue to the provider.", req.ProviderData),
 		)
 		return
 	}
 
-	d.client = client
+	d.client = client.deployments
 }

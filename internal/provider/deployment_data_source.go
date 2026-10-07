@@ -208,7 +208,7 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	if deployment.StatusCode() != http.StatusOK {
 		resp.Diagnostics.AddError(
 			"Unable to read deployment",
-			fmt.Sprintf("status: %d", deployment.StatusCode()),
+			formatAPIError(deployment.StatusCode(), deployment.Body),
 		)
 		return
 	}

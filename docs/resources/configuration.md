@@ -13,14 +13,42 @@ Manages an F5 ADS configuration. A configuration is a named, versioned set of fi
 ## Example Usage
 
 ```terraform
-# Example F5 ADS NGINX configuration.
+# Example F5 ADS configuration.
+
+locals {
+  nginx_conf = <<-EOT
+    user nginx;
+    worker_processes auto;
+    pid /run/nginx/nginx.pid;
+    worker_rlimit_nofile 524288;
+    events {
+        worker_connections 150000;
+    }
+
+    http {
+        server {
+            listen 80 backlog=2048 default_server;
+            http2 on;
+            server_name _;
+
+            location / {
+                return 200 "Hello from F5 ADS!";
+            }
+        }
+    }
+  EOT
+}
 
 resource "f5ads_configuration" "example" {
-  # Exactly one of "name" or "name_prefix" must be set.
+  # Set exactly one of "name" or "name_prefix": "name" specifies a fixed name,
+  # while "name_prefix" lets the provider generate a name with a random suffix.
+  # Use "name_prefix" with create_before_destroy to give replacements unique
+  # names, avoiding naming conflicts while linked resources are updated before
+  # the old configuration is deleted.
   name = "example-config"
-  description = "Example NGINX configuration managed by Terraform."
+  description = "Example F5 ADS configuration managed by Terraform."
 
-  # The provider always uses "/etc/nginx/nginx.conf" as the main NGINX
+  # The provider always uses "/etc/nginx/nginx.conf" as the main F5 ADS
   # configuration file, so that file must exist in the configs group below.
   configs = [
     {
@@ -28,7 +56,7 @@ resource "f5ads_configuration" "example" {
       files = [
         {
           name     = "nginx.conf"
-          contents = filebase64("${path.module}/nginx.conf")
+          contents = base64encode(local.nginx_conf)
         },
       ]
     },
@@ -36,10 +64,13 @@ resource "f5ads_configuration" "example" {
 }
 
 # Example using name_prefix.
+# Combine name_prefix with create_before_destroy so a replacement configuration
+# gets a unique name and can coexist with the old one, avoiding naming conflicts
+# while linked resources are updated before the old configuration is deleted.
 
 resource "f5ads_configuration" "example2" {
   name_prefix = "myconfig"
-  description = "NGINX configuration that with name_prefix."
+  description = "F5 ADS configuration that with name_prefix."
 
   configs = [
     {
@@ -47,7 +78,7 @@ resource "f5ads_configuration" "example2" {
       files = [
         {
           name     = "nginx.conf"
-          contents = filebase64("${path.module}/nginx.conf")
+          contents = base64encode(local.nginx_conf)
         },
       ]
     },
@@ -64,26 +95,26 @@ resource "f5ads_configuration" "example2" {
 
 ### Required
 
-- `configs` (Attributes Set) Groups of NGINX configuration files. Each group represents a directory containing one or more configuration files. (see [below for nested schema](#nestedatt--configs))
+- `configs` (Attributes Set) Groups of F5 ADS configuration files. Each group represents a directory containing one or more configuration files. (see [below for nested schema](#nestedatt--configs))
 
 ### Optional
 
-- `description` (String) Description of the NGINX configuration.
-- `name` (String) Unique name for the NGINX configuration. Must be 3-30 characters, start with a lowercase letter, end with a lowercase letter or digit, and contain only lowercase letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set.
-- `name_prefix` (String) Creates a unique name for the NGINX configuration beginning with this prefix. Must start with a lowercase letter and contain only lowercase letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set.
+- `description` (String) Description of the F5 ADS configuration.
+- `name` (String) Unique name for the F5 ADS configuration. Must be 3-30 characters, start with a lowercase letter, end with a lowercase letter or digit, and contain only lowercase letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set.
+- `name_prefix` (String) Creates a unique name for the F5 ADS configuration beginning with this prefix. Must start with a lowercase letter and contain only lowercase letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set.
 
 ### Read-Only
 
-- `id` (String) Unique identifier for the NGINX configuration, assigned by F5 ADS.
-- `latest_version_id` (String) Identifier of the latest version of the NGINX configuration. Every update fully replaces the configuration and therefore creates a new version.
-- `organization_id` (String) Identifier of the organization that owns the NGINX configuration.
+- `id` (String) Unique identifier for the configuration, assigned by F5 ADS.
+- `latest_version_id` (String) Identifier of the latest version of the F5 ADS configuration. Every update fully replaces the configuration and therefore creates a new version.
+- `organization_id` (String) Identifier of the organization that owns the F5 ADS configuration.
 
 <a id="nestedatt--configs"></a>
 ### Nested Schema for `configs`
 
 Required:
 
-- `files` (Attributes Set) NGINX configuration files that live under the directory named by this group. (see [below for nested schema](#nestedatt--configs--files))
+- `files` (Attributes Set) F5 ADS configuration files that live under the directory named by this group. (see [below for nested schema](#nestedatt--configs--files))
 - `name` (String) Directory path that the files in this group belong to (e.g. "/etc/nginx").
 
 <a id="nestedatt--configs--files"></a>
@@ -101,6 +132,6 @@ Import is supported using the following syntax:
 The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
-# NGINX configurations can be imported using their ID, e.g.:
+# F5 ADS configurations can be imported using their ID, e.g.:
 terraform import f5ads_configuration.example cfg_abc123XYZ
 ```

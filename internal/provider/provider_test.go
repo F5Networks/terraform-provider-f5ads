@@ -36,6 +36,30 @@ func randomNameSuffix() int {
 	return rand.Intn(100000000)
 }
 
+// baseNginxConfig returns an f5ads_configuration resource that deployments
+// can reference instead of relying on a pre-existing configuration.
+func baseNginxConfig(nameSuffix int) string {
+	return fmt.Sprintf(
+		`
+resource "f5ads_configuration" "deployment" {
+  name = "nginxacc-dep-%d"
+  configs = [
+    {
+      name = "/etc/nginx"
+      files = [
+        {
+          name     = "nginx.conf"
+          contents = "%s"
+        }
+      ]
+    }
+  ]
+}
+`,
+		nameSuffix, b64(nginxConfContents),
+	)
+}
+
 func baseGcpConfig(nameSuffix int) string {
 	return fmt.Sprintf(
 		`

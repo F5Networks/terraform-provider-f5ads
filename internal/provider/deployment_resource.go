@@ -21,7 +21,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Ensure orderResource satisfies the expected interface.
+// Ensure deploymentResource satisfies the expected interface.
 
 var (
 	_ resource.Resource                   = &deploymentResource{}
@@ -470,7 +470,7 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 	if dep.StatusCode() != http.StatusAccepted {
 		resp.Diagnostics.AddError(
 			"Error creating deployment",
-			fmt.Sprintf("status: %d", dep.StatusCode()),
+			formatAPIError(dep.StatusCode(), dep.Body),
 		)
 		return
 	}
@@ -564,7 +564,7 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 	if deployment.StatusCode() != http.StatusOK {
 		resp.Diagnostics.AddError(
 			"Unable to read deployment",
-			fmt.Sprintf("status: %d", deployment.StatusCode()),
+			formatAPIError(deployment.StatusCode(), deployment.Body),
 		)
 		return
 	}
@@ -870,7 +870,7 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 	if dep.StatusCode() != http.StatusAccepted {
 		resp.Diagnostics.AddError(
 			"Error updating deployment",
-			fmt.Sprintf("status: %d", dep.StatusCode()),
+			formatAPIError(dep.StatusCode(), dep.Body),
 		)
 		return
 	}
@@ -954,11 +954,18 @@ func (r *deploymentResource) Delete(ctx context.Context, req resource.DeleteRequ
 		return
 	}
 
-	_, err = r.client.DeleteDeploymentWithResponse(ctx, *deploymentObjectID)
+	dep, err := r.client.DeleteDeploymentWithResponse(ctx, *deploymentObjectID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error deleting deployment",
 			"could not delete deployment, unexpected error: "+err.Error(),
+		)
+		return
+	}
+	if dep.StatusCode() != http.StatusAccepted {
+		resp.Diagnostics.AddError(
+			"Error deleting deployment",
+			formatAPIError(dep.StatusCode(), dep.Body),
 		)
 		return
 	}
@@ -984,16 +991,16 @@ func (r *deploymentResource) Configure(_ context.Context, req resource.Configure
 		return
 	}
 
-	client, ok := req.ProviderData.(*deployments.ClientWithResponses)
+	client, ok := req.ProviderData.(*clients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *deployments.ClientWithResponses, got: %T. Please report this issue to the provider.", req.ProviderData),
+			fmt.Sprintf("Expected *clients, got: %T. Please report this issue to the provider.", req.ProviderData),
 		)
 		return
 	}
 
-	r.client = client
+	r.client = client.deployments
 }
 
 func (r *deploymentResource) ValidateConfig(
@@ -1056,15 +1063,19 @@ func waitUntilDeploymentReady(
 		if resp.StatusCode() == http.StatusUnauthorized ||
 			resp.StatusCode() == http.StatusForbidden ||
 			resp.StatusCode() == http.StatusNotFound {
-			return nil, backoff.Permanent(errors.New("response status: " + resp.Status()))
+			return nil, backoff.Permanent(errors.New(formatAPIError(resp.StatusCode(), resp.Body)))
 		}
 
 		if resp.StatusCode() >= http.StatusInternalServerError {
-			return nil, errors.New("server error: " + resp.Status())
+			return nil, errors.New(formatAPIError(resp.StatusCode(), resp.Body))
 		}
 
 		if resp.StatusCode() == http.StatusTooManyRequests {
-			return nil, errors.New("too many requests: " + resp.Status())
+			return nil, errors.New(formatAPIError(resp.StatusCode(), resp.Body))
+		}
+
+		if resp.StatusCode() != http.StatusOK {
+			return nil, backoff.Permanent(errors.New(formatAPIError(resp.StatusCode(), resp.Body)))
 		}
 
 		if resp.StatusCode() == http.StatusOK && resp.JSON200 == nil {
@@ -1112,15 +1123,15 @@ func waitUntilDeploymentDeleted(
 
 		if resp.StatusCode() == http.StatusUnauthorized ||
 			resp.StatusCode() == http.StatusForbidden {
-			return nil, backoff.Permanent(errors.New("response status: " + resp.Status()))
+			return nil, backoff.Permanent(errors.New(formatAPIError(resp.StatusCode(), resp.Body)))
 		}
 
 		if resp.StatusCode() >= http.StatusInternalServerError {
-			return nil, errors.New("server error: " + resp.Status())
+			return nil, errors.New(formatAPIError(resp.StatusCode(), resp.Body))
 		}
 
 		if resp.StatusCode() == http.StatusTooManyRequests {
-			return nil, errors.New("too many requests: " + resp.Status())
+			return nil, errors.New(formatAPIError(resp.StatusCode(), resp.Body))
 		}
 
 		if resp.StatusCode() != http.StatusNotFound {

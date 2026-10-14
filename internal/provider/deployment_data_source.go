@@ -213,7 +213,7 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	if deployment.StatusCode() != http.StatusOK {
 		resp.Diagnostics.AddError(
 			"Unable to read deployment",
-			fmt.Sprintf("status: %d", deployment.StatusCode()),
+			formatAPIError(deployment.StatusCode(), deployment.Body),
 		)
 		return
 	}
@@ -323,14 +323,14 @@ func (d *deploymentDataSource) Configure(ctx context.Context, req datasource.Con
 		return
 	}
 
-	client, ok := req.ProviderData.(*deployments.ClientWithResponses)
+	client, ok := req.ProviderData.(*clients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *deployments.ClientWithResponses, got: %T. Please report this issue to the provider.", req.ProviderData),
+			fmt.Sprintf("Expected *clients, got: %T. Please report this issue to the provider.", req.ProviderData),
 		)
 		return
 	}
 
-	d.client = client
+	d.client = client.deployments
 }

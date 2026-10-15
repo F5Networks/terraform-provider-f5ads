@@ -150,13 +150,14 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			"description": schema.StringAttribute{
 				Optional:    true,
 				Description: "Description of the NGINX configuration.",
+				Validators: []validator.String{
+					stringvalidator.LengthAtLeast(1),
+				},
 			},
 			"latest_version_id": schema.StringAttribute{
-				Computed:    true,
-				Description: "Identifier of the latest version of the NGINX configuration.",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
+				Computed: true,
+				Description: "Identifier of the latest version of the NGINX configuration. " +
+					"Updating configuration files will create a new version.",
 			},
 			"configs": schema.SetNestedAttribute{
 				Required:    true,
@@ -370,14 +371,20 @@ func (r *configResource) fetchConfig(ctx context.Context, model *configResourceM
 		return false
 	}
 
-	configResponse := got.JSON200
-	model.Id = types.StringValue(configResponse.ObjectId.String())
-	model.Name = types.StringValue(configResponse.Name)
-	model.Description = types.StringPointerValue(configResponse.Description)
-	model.OrganizationID = types.StringValue(configResponse.OrganizationId.String())
-	model.LatestVersionID = types.StringValue(configResponse.LatestVersion.String())
+	setConfigMetadata(model, got.JSON200)
+	return r.fetchConfigVersion(ctx, model, diags)
+}
 
-	return r.fetchConfigVersion(ctx, model, configResponse.LatestVersion, diags)
+// setConfigMetadata copies the config metadata returned by the API onto model.
+func setConfigMetadata(model *configResourceModel, cfg *configs.NginxConfig) {
+	model.Name = types.StringValue(cfg.Name)
+
+	if cfg.Description != nil && *cfg.Description != "" {
+		model.Description = types.StringValue(*cfg.Description)
+	} else {
+		model.Description = types.StringNull()
+	}
+	setComputedAttributes(model, cfg)
 }
 
 // setComputedAttributes sets only the values the server assigns.
@@ -387,24 +394,26 @@ func setComputedAttributes(model *configResourceModel, cfg *configs.NginxConfig)
 	model.LatestVersionID = types.StringValue(cfg.LatestVersion.String())
 }
 
-// fetchConfigVersion retrieves the given config version from the API and
-// populates the file contents on model.
+// fetchConfigVersion retrieves the latest config version using the IDs on model
+// and populates its file contents.
 func (r *configResource) fetchConfigVersion(
 	ctx context.Context,
 	model *configResourceModel,
-	versionID configs.NginxConfigVersionID,
 	diags *diag.Diagnostics,
 ) bool {
 	configObjectID, err := objects.Parse(model.Id.ValueString())
 	if err != nil {
-		diags.AddError(
-			"Unable to parse NGINX config Object ID",
-			err.Error(),
-		)
+		diags.AddError("Unable to parse F5 ADS config Object ID", err.Error())
 		return false
 	}
 
-	version, err := r.client.GetConfigVersionWithResponse(ctx, *configObjectID, versionID)
+	versionID, err := objects.Parse(model.LatestVersionID.ValueString())
+	if err != nil {
+		diags.AddError("Unable to parse F5 ADS config version Object ID", err.Error())
+		return false
+	}
+
+	version, err := r.client.GetConfigVersionWithResponse(ctx, *configObjectID, *versionID)
 	if err != nil {
 		diags.AddError(
 			"Unable to read NGINX config version",
@@ -443,11 +452,82 @@ func (r *configResource) fetchConfigVersion(
 }
 
 // Update updates the resource and sets the updated Terraform state on success.
-func (r *configResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError(
-		"TODO",
-		"implementing update functionality is pending.",
-	)
+func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan configResourceModel
+	diags := req.Plan.Get(ctx, &plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	var state configResourceModel
+	diags = req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	configObjectID, err := objects.Parse(plan.Id.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to parse NGINX config Object ID",
+			err.Error(),
+		)
+		return
+	}
+
+	configDirs, err := configsToAPI(plan.Configs)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to parse NGINX configuration files",
+			err.Error(),
+		)
+		return
+	}
+
+	description := plan.Description.ValueStringPointer()
+	if description == nil && !state.Description.IsNull() {
+		empty := ""
+		description = &empty
+	}
+
+	confPath := nginxConfPath
+	cfgReq := configs.NginxConfigReplaceRequest{
+		Description: description,
+		Config: configs.NGINXaaSConfigRequest{
+			ConfPath: &confPath,
+			Configs:  configDirs,
+		},
+	}
+
+	replaced, err := r.client.ReplaceNginxConfigWithResponse(ctx, *configObjectID, cfgReq)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to update NGINX config",
+			err.Error(),
+		)
+		return
+	}
+
+	if replaced.StatusCode() != http.StatusOK {
+		resp.Diagnostics.AddError(
+			"Unable to update NGINX config",
+			fmt.Sprintf("status: %d, body: %s", replaced.StatusCode(), replaced.Body),
+		)
+		return
+	}
+
+	if replaced.JSON200 == nil {
+		resp.Diagnostics.AddError(
+			"Server returned empty NGINX config",
+			"Received empty NGINX config object from server.",
+		)
+		return
+	}
+
+	setComputedAttributes(&plan, replaced.JSON200)
+	diags = resp.State.Set(ctx, plan)
+	resp.Diagnostics.Append(diags...)
 }
 
 // Delete deletes the resource and removes the Terraform state on success.

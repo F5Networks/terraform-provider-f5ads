@@ -16,11 +16,13 @@ func googleCloudManagedPublicEndpointDeployment(nameSuffix int) string {
 
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
-  name = "nginxacc-%[3]d"
+  name = "nginxacc-%[4]d"
   capacity = 10
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   google_cloud_properties = {
 	region = "us-east1"
 	network_attachment = google_compute_network_attachment.default.id
@@ -39,7 +41,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, baseGcpConfig(nameSuffix), providerConfig, nameSuffix)
+`, baseGcpConfig(nameSuffix), providerConfig, baseNginxConfig(), nameSuffix)
 }
 
 func googleCloudPrivateEndpointDeployment(nameSuffix int) string {
@@ -49,11 +51,13 @@ func googleCloudPrivateEndpointDeployment(nameSuffix int) string {
 
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
-  name = "nginxacc-%[3]d"
+  name = "nginxacc-%[4]d"
   capacity = 10
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   google_cloud_properties = {
 	region = "us-east1"
 	network_attachment = google_compute_network_attachment.default.id
@@ -62,7 +66,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, baseGcpConfig(nameSuffix), providerConfig, nameSuffix)
+`, baseGcpConfig(nameSuffix), providerConfig, baseNginxConfig(), nameSuffix)
 }
 
 func googleCloudPrivateEndpointDeploymentUpdateAcceptList(nameSuffix int, gcpProject string) string {
@@ -72,11 +76,13 @@ func googleCloudPrivateEndpointDeploymentUpdateAcceptList(nameSuffix int, gcpPro
 
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
-  name = "nginxacc-%[3]d"
+  name = "nginxacc-%[4]d"
   capacity = 10
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   google_cloud_properties = {
 	region = "us-east1"
 	network_attachment = google_compute_network_attachment.default.id
@@ -89,7 +95,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, baseGcpConfig(nameSuffix), providerConfig, nameSuffix, gcpProject)
+`, baseGcpConfig(nameSuffix), providerConfig, baseNginxConfig(), nameSuffix, gcpProject)
 }
 
 func googleCloudManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix int) string {
@@ -99,11 +105,13 @@ func googleCloudManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix int) st
 
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
-  name = "nginxacc-%[3]d"
+  name = "nginxacc-%[4]d"
   capacity = 20
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   google_cloud_properties = {
 	  region = "us-east1"
 	network_attachment = google_compute_network_attachment.default.id
@@ -122,7 +130,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, baseGcpConfig(nameSuffix), providerConfig, nameSuffix)
+`, baseGcpConfig(nameSuffix), providerConfig, baseNginxConfig(), nameSuffix)
 }
 
 func googleCloudManagedPublicEndpointDeploymentUpdateIdentityAndObservability(nameSuffix int) string {
@@ -132,11 +140,13 @@ func googleCloudManagedPublicEndpointDeploymentUpdateIdentityAndObservability(na
 
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
-  name = "nginxacc-%[3]d"
+  name = "nginxacc-%[4]d"
   capacity = 10
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   google_cloud_properties = {
 	region = "us-east1"
 	network_attachment = google_compute_network_attachment.default.id
@@ -160,7 +170,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, baseGcpConfig(nameSuffix), providerConfig, nameSuffix)
+`, baseGcpConfig(nameSuffix), providerConfig, baseNginxConfig(), nameSuffix)
 }
 
 func googleCloudManagedPublicEndpointDeploymentUpdateWaf(nameSuffix int) string {
@@ -170,11 +180,13 @@ func googleCloudManagedPublicEndpointDeploymentUpdateWaf(nameSuffix int) string 
 
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
-  name = "nginxacc-%[3]d"
+  name = "nginxacc-%[4]d"
   capacity = 10
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   waf_enabled = true
   google_cloud_properties = {
 	region = "us-east1"
@@ -199,7 +211,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, baseGcpConfig(nameSuffix), providerConfig, nameSuffix)
+`, baseGcpConfig(nameSuffix), providerConfig, baseNginxConfig(), nameSuffix)
 }
 
 func TestAccDeploymentResourceGoogleManagedPublicEndpoint(t *testing.T) {
@@ -458,11 +470,13 @@ func googleCloudDeploymentWithoutFrontendEndpoint() string {
 
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
   name = "nginxacc-without-frontend"
   capacity = 10
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   google_cloud_properties = {
 	region = "us-east1"
 	network_attachment = google_compute_network_attachment.default.id
@@ -470,7 +484,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, baseGcpConfig(1), providerConfig)
+`, baseGcpConfig(1), providerConfig, baseNginxConfig())
 }
 
 func googleCloudDeploymentWithBothFrontendEndpoints() string {
@@ -480,11 +494,13 @@ func googleCloudDeploymentWithBothFrontendEndpoints() string {
 
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
   name = "nginxacc-with-both-frontends"
   capacity = 10
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   google_cloud_properties = {
 	region = "us-east1"
 	network_attachment = google_compute_network_attachment.default.id
@@ -496,7 +512,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, baseGcpConfig(1), providerConfig)
+`, baseGcpConfig(1), providerConfig, baseNginxConfig())
 }
 
 func deploymentWithoutCloudProperties() string {

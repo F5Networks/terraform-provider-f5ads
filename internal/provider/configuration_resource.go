@@ -75,13 +75,13 @@ type configResourceModel struct {
 	Configs         []ConfigGroupModel `tfsdk:"configs"`
 }
 
-// ConfigGroupModel represents a group of NGINX configuration files.
+// ConfigGroupModel represents a group of F5 ADS configuration files.
 type ConfigGroupModel struct {
 	Name  types.String      `tfsdk:"name"`
 	Files []ConfigFileModel `tfsdk:"files"`
 }
 
-// ConfigFileModel represents a single NGINX configuration file.
+// ConfigFileModel represents a single F5 ADS configuration file.
 type ConfigFileModel struct {
 	Name     types.String `tfsdk:"name"`
 	Contents types.String `tfsdk:"contents"`
@@ -100,14 +100,14 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "Unique identifier for the NGINX configuration, assigned by F5 ADS.",
+				Description: "Unique identifier for the configuration, assigned by F5 ADS.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"organization_id": schema.StringAttribute{
 				Computed:    true,
-				Description: "Identifier of the organization that owns the NGINX configuration.",
+				Description: "Identifier of the organization that owns the F5 ADS configuration.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -115,7 +115,7 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			"name": schema.StringAttribute{
 				Optional: true,
 				Computed: true,
-				Description: "Unique name for the NGINX configuration. Must be 3-30 characters, start with a " +
+				Description: "Unique name for the F5 ADS configuration. Must be 3-30 characters, start with a " +
 					"lowercase letter, end with a lowercase letter or digit, and contain only lowercase " +
 					"letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set. ",
 				PlanModifiers: []planmodifier.String{
@@ -133,7 +133,7 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"name_prefix": schema.StringAttribute{
 				Optional: true,
-				Description: "Creates a unique name for the NGINX configuration beginning with this prefix. " +
+				Description: "Creates a unique name for the F5 ADS configuration beginning with this prefix. " +
 					"Must start with a lowercase letter and contain only lowercase letters, digits, and hyphens. " +
 					"Exactly one of `name` or `name_prefix` must be set.",
 				PlanModifiers: []planmodifier.String{
@@ -149,7 +149,7 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"description": schema.StringAttribute{
 				Optional:    true,
-				Description: "Description of the NGINX configuration.",
+				Description: "Description of the F5 ADS configuration.",
 				Validators: []validator.String{
 					stringvalidator.LengthAtLeast(1),
 				},
@@ -161,7 +161,7 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"configs": schema.SetNestedAttribute{
 				Required:    true,
-				Description: "Groups of NGINX configuration files. Each group represents a directory containing one or more configuration files.",
+				Description: "Groups of F5 ADS configuration files. Each group represents a directory containing one or more configuration files.",
 				Validators: []validator.Set{
 					setvalidator.SizeAtLeast(1),
 				},
@@ -249,7 +249,7 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 		name, err := generateNameWithPrefix(plan.NamePrefix.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddError(
-				"Unable to generate NGINX config name",
+				"Unable to generate F5 ADS config name",
 				err.Error(),
 			)
 			return
@@ -278,7 +278,7 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 	created, err := r.client.CreateNginxConfigWithResponse(ctx, cfgReq)
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unable to create NGINX config",
+			"Unable to create F5 ADS config",
 			err.Error(),
 		)
 		return
@@ -286,7 +286,7 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 
 	if created.StatusCode() != http.StatusCreated {
 		resp.Diagnostics.AddError(
-			"Unable to create NGINX config",
+			"Unable to create F5 ADS config",
 			fmt.Sprintf("status: %d, body: %s", created.StatusCode(), created.Body),
 		)
 		return
@@ -294,8 +294,8 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 
 	if created.JSON201 == nil {
 		resp.Diagnostics.AddError(
-			"Server returned empty NGINX config",
-			"Received empty NGINX config object from server.",
+			"Server returned empty F5 ADS config",
+			"Received empty F5 ADS config object from server.",
 		)
 		return
 	}
@@ -336,7 +336,7 @@ func (r *configResource) fetchConfig(ctx context.Context, model *configResourceM
 	configObjectID, err := objects.Parse(model.Id.ValueString())
 	if err != nil {
 		diags.AddError(
-			"Unable to parse NGINX config Object ID",
+			"Unable to parse F5 ADS config Object ID",
 			err.Error(),
 		)
 		return false
@@ -345,7 +345,7 @@ func (r *configResource) fetchConfig(ctx context.Context, model *configResourceM
 	got, err := r.client.GetNginxConfigWithResponse(ctx, *configObjectID)
 	if err != nil {
 		diags.AddError(
-			"Unable to read NGINX config",
+			"Unable to read F5 ADS config",
 			err.Error(),
 		)
 		return false
@@ -357,7 +357,7 @@ func (r *configResource) fetchConfig(ctx context.Context, model *configResourceM
 
 	if got.StatusCode() != http.StatusOK {
 		diags.AddError(
-			"Unable to read NGINX config",
+			"Unable to read F5 ADS config",
 			fmt.Sprintf("status: %d, body: %s", got.StatusCode(), got.Body),
 		)
 		return false
@@ -365,8 +365,8 @@ func (r *configResource) fetchConfig(ctx context.Context, model *configResourceM
 
 	if got.JSON200 == nil {
 		diags.AddError(
-			"Server returned empty NGINX config",
-			"Received empty NGINX config object from server.",
+			"Server returned empty F5 ADS config",
+			"Received empty F5 ADS config object from server.",
 		)
 		return false
 	}
@@ -416,7 +416,7 @@ func (r *configResource) fetchConfigVersion(
 	version, err := r.client.GetConfigVersionWithResponse(ctx, *configObjectID, *versionID)
 	if err != nil {
 		diags.AddError(
-			"Unable to read NGINX config version",
+			"Unable to read F5 ADS config version",
 			err.Error(),
 		)
 		return false
@@ -424,15 +424,15 @@ func (r *configResource) fetchConfigVersion(
 
 	if version.StatusCode() == http.StatusNotFound {
 		diags.AddError(
-			"NGINX config version not found",
-			fmt.Sprintf("Latest version %q of NGINX config %q was not found.", versionID.String(), model.Id.ValueString()),
+			"F5 ADS config version not found",
+			fmt.Sprintf("Latest version %q of F5 ADS config %q was not found.", versionID.String(), model.Id.ValueString()),
 		)
 		return false
 	}
 
 	if version.StatusCode() != http.StatusOK {
 		diags.AddError(
-			"Unable to read NGINX config version",
+			"Unable to read F5 ADS config version",
 			fmt.Sprintf("status: %d, body: %s", version.StatusCode(), version.Body),
 		)
 		return false
@@ -440,8 +440,8 @@ func (r *configResource) fetchConfigVersion(
 
 	if version.JSON200 == nil {
 		diags.AddError(
-			"Server returned empty NGINX config version",
-			"Received empty NGINX config version object from server.",
+			"Server returned empty F5 ADS config version",
+			"Received empty F5 ADS config version object from server.",
 		)
 		return false
 	}
@@ -470,7 +470,7 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 	configObjectID, err := objects.Parse(plan.Id.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unable to parse NGINX config Object ID",
+			"Unable to parse F5 ADS config Object ID",
 			err.Error(),
 		)
 		return
@@ -503,7 +503,7 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 	replaced, err := r.client.ReplaceNginxConfigWithResponse(ctx, *configObjectID, cfgReq)
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unable to update NGINX config",
+			"Unable to update F5 ADS config",
 			err.Error(),
 		)
 		return
@@ -511,7 +511,7 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 	if replaced.StatusCode() != http.StatusOK {
 		resp.Diagnostics.AddError(
-			"Unable to update NGINX config",
+			"Unable to update F5 ADS config",
 			fmt.Sprintf("status: %d, body: %s", replaced.StatusCode(), replaced.Body),
 		)
 		return
@@ -519,8 +519,8 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 	if replaced.JSON200 == nil {
 		resp.Diagnostics.AddError(
-			"Server returned empty NGINX config",
-			"Received empty NGINX config object from server.",
+			"Server returned empty F5 ADS config",
+			"Received empty F5 ADS config object from server.",
 		)
 		return
 	}
@@ -531,14 +531,43 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 }
 
 // Delete deletes the resource and removes the Terraform state on success.
-func (r *configResource) Delete(_ context.Context, _ resource.DeleteRequest, resp *resource.DeleteResponse) {
-	resp.Diagnostics.AddWarning(
-		"TODO",
-		"implementing delete functionality is pending.",
-	)
+func (r *configResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state configResourceModel
+	diags := req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	configObjectID, err := objects.Parse(state.Id.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to parse F5 ADS config Object ID",
+			err.Error(),
+		)
+		return
+	}
+
+	deleted, err := r.client.DeleteNginxConfigWithResponse(ctx, *configObjectID)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to delete F5 ADS config",
+			err.Error(),
+		)
+		return
+	}
+
+	switch deleted.StatusCode() {
+	case http.StatusNoContent, http.StatusNotFound:
+	default:
+		resp.Diagnostics.AddError(
+			"Unable to delete F5 ADS config",
+			fmt.Sprintf("status: %d, body: %s", deleted.StatusCode(), deleted.Body),
+		)
+	}
 }
 
-// ImportState imports an existing NGINX config into Terraform state by its ID.
+// ImportState imports an existing F5 ADS config into Terraform state by its ID.
 func (r *configResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
@@ -557,7 +586,7 @@ func generateNameWithPrefix(prefix string) (string, error) {
 
 	if !nameRegex.MatchString(name) || len(name) < nameMinLength || len(name) > nameMaxLength {
 		return "", fmt.Errorf(
-			"generated name %q is not a valid NGINX configuration name: "+
+			"generated name %q is not a valid F5 ADS configuration name: "+
 				"it must be %d-%d characters and match %s",
 			name, nameMinLength, nameMaxLength, nameRegex,
 		)

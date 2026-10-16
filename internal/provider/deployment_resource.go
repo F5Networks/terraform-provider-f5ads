@@ -134,6 +134,9 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"nginx_version": schema.StringAttribute{
 				Computed:    true,
 				Description: "NGINX version for the deployment.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"organization_id": schema.StringAttribute{
 				Computed:    true,

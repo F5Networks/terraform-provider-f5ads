@@ -294,11 +294,13 @@ func awsManagedPublicEndpointDeployment(nameSuffix int) string {
 		`
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
-  name = "nginxacc-%[2]d"
+  name = "nginxacc-%[3]d"
   capacity = 10
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   aws_cloud_properties = {
 	region = "us-east-1"
 	ipv4_cidr_block = "10.0.0.0/24"
@@ -317,7 +319,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, providerConfig, nameSuffix)
+`, providerConfig, baseNginxConfig(), nameSuffix)
 }
 
 func awsManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix int) string {
@@ -325,11 +327,13 @@ func awsManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix int) string {
 		`
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
-  name = "nginxacc-%[2]d"
+  name = "nginxacc-%[3]d"
   capacity = 20
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   aws_cloud_properties = {
 	region = "us-east-1"
 	ipv4_cidr_block = "10.0.0.0/24"
@@ -348,7 +352,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, providerConfig, nameSuffix)
+`, providerConfig, baseNginxConfig(), nameSuffix)
 }
 
 func awsManagedPublicEndpointDeploymentUpdateWaf(nameSuffix int) string {
@@ -356,11 +360,13 @@ func awsManagedPublicEndpointDeploymentUpdateWaf(nameSuffix int) string {
 		`
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
-  name = "nginxacc-%[2]d"
+  name = "nginxacc-%[3]d"
   capacity = 20
-  nginx_config_id = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
   waf_enabled = true
   aws_cloud_properties = {
 	region = "us-east-1"
@@ -380,7 +386,7 @@ resource "f5ads_deployment" "test" {
 	}
   }
 }
-`, providerConfig, nameSuffix)
+`, providerConfig, baseNginxConfig(), nameSuffix)
 }
 
 func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
@@ -391,6 +397,8 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 			{
 				Config: awsManagedPublicEndpointDeployment(nameSuffix),
 				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_id", "f5ads_configuration.test", "id"),
+					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_version_id", "f5ads_configuration.test", "latest_version_id"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "10"),
 					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "waf_enabled"),
@@ -410,6 +418,8 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 			{
 				Config: awsManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix),
 				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_id", "f5ads_configuration.test", "id"),
+					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_version_id", "f5ads_configuration.test", "latest_version_id"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "20"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.region", "us-east-1"),
@@ -420,6 +430,8 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 			{
 				Config: awsManagedPublicEndpointDeploymentUpdateWaf(nameSuffix),
 				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_id", "f5ads_configuration.test", "id"),
+					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_version_id", "f5ads_configuration.test", "latest_version_id"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "waf_enabled", "true"),
 				),
 			},
@@ -520,13 +532,15 @@ func deploymentWithoutCloudProperties() string {
 		`
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
   name                    = "nginxacc-without-cloud"
   capacity                = 10
-  nginx_config_id         = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id         = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
 }
-`, providerConfig)
+`, providerConfig, baseNginxConfig())
 }
 
 func deploymentWithBothCloudProperties() string {
@@ -534,11 +548,13 @@ func deploymentWithBothCloudProperties() string {
 		`
 %s
 
+%s
+
 resource "f5ads_deployment" "test" {
   name                    = "nginxacc-with-both-clouds"
   capacity                = 10
-  nginx_config_id         = "cfg_RXmd3U3JRcOB3GNQ0QXNSA"
-  nginx_config_version_id = "cv_Sxv-NjCqTz63egfJIEy5GA"
+  nginx_config_id         = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
 
   google_cloud_properties = {
     region             = "us-east1"
@@ -560,7 +576,7 @@ resource "f5ads_deployment" "test" {
     }
   }
 }
-`, providerConfig)
+`, providerConfig, baseNginxConfig())
 }
 
 func TestAccDeploymentResourceCloudExclusivityValidation(t *testing.T) {

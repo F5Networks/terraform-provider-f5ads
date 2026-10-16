@@ -287,7 +287,7 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 	if created.StatusCode() != http.StatusCreated {
 		resp.Diagnostics.AddError(
 			"Unable to create F5 ADS config",
-			fmt.Sprintf("status: %d, body: %s", created.StatusCode(), created.Body),
+			formatAPIError(created.StatusCode(), created.Body),
 		)
 		return
 	}
@@ -358,7 +358,7 @@ func (r *configResource) fetchConfig(ctx context.Context, model *configResourceM
 	if got.StatusCode() != http.StatusOK {
 		diags.AddError(
 			"Unable to read F5 ADS config",
-			fmt.Sprintf("status: %d, body: %s", got.StatusCode(), got.Body),
+			formatAPIError(got.StatusCode(), got.Body),
 		)
 		return false
 	}
@@ -433,7 +433,7 @@ func (r *configResource) fetchConfigVersion(
 	if version.StatusCode() != http.StatusOK {
 		diags.AddError(
 			"Unable to read F5 ADS config version",
-			fmt.Sprintf("status: %d, body: %s", version.StatusCode(), version.Body),
+			formatAPIError(version.StatusCode(), version.Body),
 		)
 		return false
 	}
@@ -512,7 +512,7 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 	if replaced.StatusCode() != http.StatusOK {
 		resp.Diagnostics.AddError(
 			"Unable to update F5 ADS config",
-			fmt.Sprintf("status: %d, body: %s", replaced.StatusCode(), replaced.Body),
+			formatAPIError(replaced.StatusCode(), replaced.Body),
 		)
 		return
 	}
@@ -562,7 +562,7 @@ func (r *configResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	default:
 		resp.Diagnostics.AddError(
 			"Unable to delete F5 ADS config",
-			fmt.Sprintf("status: %d, body: %s", deleted.StatusCode(), deleted.Body),
+			formatAPIError(deleted.StatusCode(), deleted.Body),
 		)
 	}
 }

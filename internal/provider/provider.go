@@ -29,9 +29,9 @@ import (
 // apiClients bundles the generated API clients that are shared with resources
 // and data sources during their Configure phase.
 type apiClients struct {
-	Deployments  *deployments.ClientWithResponses
-	Configs      *configs.ClientWithResponses
-	Certificates *certificates.ClientWithResponses
+	deployments  *deployments.ClientWithResponses
+	configs      *configs.ClientWithResponses
+	certificates *certificates.ClientWithResponses
 }
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -290,9 +290,9 @@ func (p *nginxaasProvider) Configure(ctx context.Context, req provider.Configure
 	// Make the API clients available during DataSource and Resource type
 	// Configure methods.
 	clients := &apiClients{
-		Deployments:  deploymentsClient,
-		Configs:      configsClient,
-		Certificates: certClient,
+		deployments:  deploymentsClient,
+		configs:      configsClient,
+		certificates: certClient,
 	}
 	resp.DataSourceData = clients
 	resp.ResourceData = clients

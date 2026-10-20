@@ -332,5 +332,5 @@ func (d *deploymentDataSource) Configure(ctx context.Context, req datasource.Con
 		return
 	}
 
-	d.client = clients.Deployments
+	d.client = clients.deployments
 }

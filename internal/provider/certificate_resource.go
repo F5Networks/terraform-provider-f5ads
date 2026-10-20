@@ -165,7 +165,7 @@ func (r *certificateResource) Configure(_ context.Context, req resource.Configur
 		return
 	}
 
-	r.client = client.Certificates
+	r.client = client.certificates
 }
 
 func (r *certificateResource) ConfigValidators(

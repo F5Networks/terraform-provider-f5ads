@@ -1003,7 +1003,7 @@ func (r *deploymentResource) Configure(_ context.Context, req resource.Configure
 		return
 	}
 
-	r.client = clients.Deployments
+	r.client = clients.deployments
 }
 
 func (r *deploymentResource) ValidateConfig(

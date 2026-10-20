@@ -21,7 +21,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Ensure orderResource satisfies the expected interface.
+// Ensure deploymentResource satisfies the expected interface.
 
 var (
 	_ resource.Resource                   = &deploymentResource{}
@@ -1003,7 +1003,7 @@ func (r *deploymentResource) Configure(_ context.Context, req resource.Configure
 		return
 	}
 
-	r.client = clients.Deployments
+	r.client = clients.deployments
 }
 
 func (r *deploymentResource) ValidateConfig(

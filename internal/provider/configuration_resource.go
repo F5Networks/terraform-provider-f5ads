@@ -222,7 +222,7 @@ func (r *configResource) Configure(_ context.Context, req resource.ConfigureRequ
 		return
 	}
 
-	r.client = clients.Configs
+	r.client = clients.configs
 }
 
 func (r *configResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {

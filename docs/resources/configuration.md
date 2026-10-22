@@ -99,6 +99,7 @@ resource "f5ads_configuration" "example2" {
 
 ### Optional
 
+- `aux` (Attributes Set) Groups of auxiliary files. Each group represents a directory containing one or more files. (see [below for nested schema](#nestedatt--aux))
 - `description` (String) Description of the F5 ADS configuration.
 - `name` (String) Unique name for the F5 ADS configuration. Must be 3-30 characters, start with a lowercase letter, end with a lowercase letter or digit, and contain only lowercase letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set.
 - `name_prefix` (String) Creates a unique name for the F5 ADS configuration beginning with this prefix. Must start with a lowercase letter and contain only lowercase letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set.
@@ -124,6 +125,27 @@ Required:
 
 - `contents` (String) Base64-encoded contents of the file.
 - `name` (String) File name relative to the containing directory (e.g. "nginx.conf").
+
+
+
+<a id="nestedatt--aux"></a>
+### Nested Schema for `aux`
+
+Required:
+
+- `files` (Attributes Set) Auxiliary files that live under the directory. (see [below for nested schema](#nestedatt--aux--files))
+- `name` (String) Directory path that the files in this group belong to.
+
+<a id="nestedatt--aux--files"></a>
+### Nested Schema for `aux.files`
+
+Required:
+
+- `name` (String) File name relative to the containing directory.
+
+Optional:
+
+- `contents` (String) Base64-encoded contents of the file.
 
 ## Import
 

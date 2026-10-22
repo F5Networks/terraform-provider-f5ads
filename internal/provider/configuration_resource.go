@@ -73,6 +73,7 @@ type configResourceModel struct {
 	OrganizationID  types.String       `tfsdk:"organization_id"`
 	LatestVersionID types.String       `tfsdk:"latest_version_id"`
 	Configs         []ConfigGroupModel `tfsdk:"configs"`
+	Aux             []ConfigGroupModel `tfsdk:"aux"`
 }
 
 // ConfigGroupModel represents a group of F5 ADS configuration files.
@@ -158,6 +159,49 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Computed: true,
 				Description: "Identifier of the latest version of the NGINX configuration. " +
 					"Updating configuration files will create a new version.",
+			},
+			"aux": schema.SetNestedAttribute{
+				Optional:    true,
+				Description: "Groups of auxiliary files. Each group represents a directory containing one or more files. ",
+				Validators: []validator.Set{
+					setvalidator.SizeAtLeast(1),
+				},
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"name": schema.StringAttribute{
+							Required:    true,
+							Description: "Directory path that the files in this group belong to.",
+							Validators: []validator.String{
+								stringvalidator.LengthAtLeast(1),
+							},
+						},
+						"files": schema.SetNestedAttribute{
+							Required:    true,
+							Description: "Auxiliary files that live under the directory.",
+							Validators: []validator.Set{
+								setvalidator.SizeAtLeast(1),
+							},
+							NestedObject: schema.NestedAttributeObject{
+								Attributes: map[string]schema.Attribute{
+									"name": schema.StringAttribute{
+										Required:    true,
+										Description: "File name relative to the containing directory.",
+										Validators: []validator.String{
+											stringvalidator.LengthAtLeast(1),
+										},
+									},
+									"contents": schema.StringAttribute{
+										Optional:    true,
+										Description: "Base64-encoded contents of the file.",
+										Validators: []validator.String{
+											stringvalidator.LengthAtLeast(1),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
 			},
 			"configs": schema.SetNestedAttribute{
 				Required:    true,
@@ -257,7 +301,7 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 		plan.Name = types.StringValue(name)
 	}
 
-	configDirs, err := configsToAPI(plan.Configs)
+	nginxCfg, err := configRequestFromModel(&plan)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to parse NGINX configuration files",
@@ -265,14 +309,10 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 		)
 		return
 	}
-	confPath := nginxConfPath
 	cfgReq := configs.NginxConfigCreateRequest{
 		Name:        plan.Name.ValueString(),
 		Description: plan.Description.ValueStringPointer(),
-		Config: configs.NGINXaaSConfigRequest{
-			ConfPath: &confPath,
-			Configs:  configDirs,
-		},
+		Config:      nginxCfg,
 	}
 
 	created, err := r.client.CreateNginxConfigWithResponse(ctx, cfgReq)
@@ -447,6 +487,7 @@ func (r *configResource) fetchConfigVersion(
 	}
 
 	model.Configs = configsFromAPI(version.JSON200.Configs)
+	model.Aux = auxFromAPI(version.JSON200.Aux)
 
 	return true
 }
@@ -476,7 +517,7 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	configDirs, err := configsToAPI(plan.Configs)
+	nginxCfg, err := configRequestFromModel(&plan)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to parse NGINX configuration files",
@@ -491,13 +532,9 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		description = &empty
 	}
 
-	confPath := nginxConfPath
 	cfgReq := configs.NginxConfigReplaceRequest{
 		Description: description,
-		Config: configs.NGINXaaSConfigRequest{
-			ConfPath: &confPath,
-			Configs:  configDirs,
-		},
+		Config:      nginxCfg,
 	}
 
 	replaced, err := r.client.ReplaceNginxConfigWithResponse(ctx, *configObjectID, cfgReq)
@@ -595,6 +632,41 @@ func generateNameWithPrefix(prefix string) (string, error) {
 	return name, nil
 }
 
+// configRequestFromModel builds the NGINX config request body from the
+// Terraform model.
+func configRequestFromModel(model *configResourceModel) (configs.NGINXaaSConfigRequest, error) {
+	configDirs, err := configsToAPI(model.Configs)
+	if err != nil {
+		return configs.NGINXaaSConfigRequest{}, err
+	}
+	auxDirs, err := configsToAPI(model.Aux)
+	if err != nil {
+		return configs.NGINXaaSConfigRequest{}, fmt.Errorf("aux: %w", err)
+	}
+	confPath := nginxConfPath
+	return configs.NGINXaaSConfigRequest{
+		ConfPath: &confPath,
+		Configs:  configDirs,
+		Aux:      &auxDirs,
+	}, nil
+}
+
+// auxFromAPI converts the aux groups returned by the API into the Terraform model.
+func auxFromAPI(dirs *[]naas.DirectoryWithFileContent) []ConfigGroupModel {
+	if dirs == nil || len(*dirs) == 0 {
+		return nil
+	}
+	groups := configsFromAPI(*dirs)
+	for i := range groups {
+		for j := range groups[i].Files {
+			if groups[i].Files[j].Contents.ValueString() == "" {
+				groups[i].Files[j].Contents = types.StringNull()
+			}
+		}
+	}
+	return groups
+}
+
 // configsToAPI converts the configuration file groups from the Terraform
 // model into the API request representation.
 func configsToAPI(groups []ConfigGroupModel) ([]naas.DirectoryRequestWithFileContent, error) {
@@ -602,6 +674,10 @@ func configsToAPI(groups []ConfigGroupModel) ([]naas.DirectoryRequestWithFileCon
 	for _, group := range groups {
 		files := make([]naas.FileDataRequest, 0, len(group.Files))
 		for _, file := range group.Files {
+			if file.Contents.IsNull() {
+				files = append(files, naas.FileDataRequest{Name: file.Name.ValueString()})
+				continue
+			}
 			contents, err := base64.StdEncoding.DecodeString(file.Contents.ValueString())
 			if err != nil {
 				return nil, fmt.Errorf(

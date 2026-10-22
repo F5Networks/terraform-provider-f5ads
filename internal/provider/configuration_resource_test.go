@@ -2,10 +2,13 @@ package provider
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"testing"
 
+	configs "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/configs/2026-07-31"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
@@ -384,6 +387,192 @@ func TestAccConfigResourceValidation(t *testing.T) {
 				Config:      configResourceEmptyConfigs(),
 				PlanOnly:    true,
 				ExpectError: regexp.MustCompile(`Attribute configs set must contain at least 1 elements`),
+			},
+		},
+	})
+}
+
+const indexHTMLContents = `<html><body>Hello from aux!</body></html>
+`
+
+// TestConfigReplaceRequestAlwaysSendsAux verifies that the PUT body always
+// contains an explicit aux field, and that it is an empty array when no aux
+// groups are configured. The API keeps previously known aux content when the
+// field is omitted.
+func TestConfigReplaceRequestAlwaysSendsAux(t *testing.T) {
+	nginxConf := []ConfigGroupModel{{
+		Name: types.StringValue("/etc/nginx"),
+		Files: []ConfigFileModel{{
+			Name:     types.StringValue("nginx.conf"),
+			Contents: types.StringValue(base64.StdEncoding.EncodeToString([]byte(nginxConfContents))),
+		}},
+	}}
+
+	tests := []struct {
+		name    string
+		aux     []ConfigGroupModel
+		wantLen int
+	}{
+		{name: "nil aux (aux blocks removed)", aux: nil, wantLen: 0},
+		{name: "empty aux", aux: []ConfigGroupModel{}, wantLen: 0},
+		{
+			name: "one aux group",
+			aux: []ConfigGroupModel{{
+				Name: types.StringValue("/srv/www"),
+				Files: []ConfigFileModel{
+					{
+						Name:     types.StringValue("index.html"),
+						Contents: types.StringValue(base64.StdEncoding.EncodeToString([]byte(indexHTMLContents))),
+					},
+					{Name: types.StringValue("empty.txt"), Contents: types.StringNull()},
+				},
+			}},
+			wantLen: 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			model := &configResourceModel{Configs: nginxConf, Aux: test.aux}
+			cfg, err := configRequestFromModel(model)
+			if err != nil {
+				t.Fatalf("configRequestFromModel() error = %v", err)
+			}
+
+			body, err := json.Marshal(configs.NginxConfigReplaceRequest{Config: cfg})
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+
+			var decoded struct {
+				Config map[string]json.RawMessage `json:"config"`
+			}
+			if err := json.Unmarshal(body, &decoded); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+
+			raw, ok := decoded.Config["aux"]
+			if !ok {
+				t.Fatalf("PUT body omits \"aux\"; want it sent explicitly. body: %s", body)
+			}
+			var aux []json.RawMessage
+			if err := json.Unmarshal(raw, &aux); err != nil || aux == nil {
+				t.Fatalf("\"aux\" = %s, want a JSON array", raw)
+			}
+			if len(aux) != test.wantLen {
+				t.Errorf("len(aux) = %d, want %d. body: %s", len(aux), test.wantLen, body)
+			}
+			if test.wantLen == 0 && string(raw) != "[]" {
+				t.Errorf("\"aux\" = %s, want []", raw)
+			}
+		})
+	}
+}
+
+func TestConfigRequestInvalidAuxBase64(t *testing.T) {
+	model := &configResourceModel{
+		Aux: []ConfigGroupModel{{
+			Name:  types.StringValue("/srv/www"),
+			Files: []ConfigFileModel{{Name: types.StringValue("index.html"), Contents: types.StringValue("not base64!")}},
+		}},
+	}
+	if _, err := configRequestFromModel(model); err == nil {
+		t.Fatal("configRequestFromModel() expected error for invalid base64 aux contents")
+	}
+}
+
+// configResourceWithAux returns a configuration with nginx.conf and one aux
+// directory containing a static HTML file.
+func configResourceWithAux(nameSuffix int) string {
+	return fmt.Sprintf(`
+%s
+
+resource "f5ads_configuration" "test" {
+  name = "nginxacc-%d"
+  configs = [
+    {
+      name = "/etc/nginx"
+      files = [
+        {
+          name     = "nginx.conf"
+          contents = base64encode(%q)
+        }
+      ]
+    }
+  ]
+  aux = [
+    {
+      name = "/srv/www"
+      files = [
+        {
+          name     = "index.html"
+          contents = base64encode(%q)
+        }
+      ]
+    }
+  ]
+}
+`, providerConfig, nameSuffix, nginxConfContents, indexHTMLContents)
+}
+
+// configResourceWithoutAux is the same configuration with every aux block removed.
+func configResourceWithoutAux(nameSuffix int) string {
+	return fmt.Sprintf(`
+%s
+
+resource "f5ads_configuration" "test" {
+  name = "nginxacc-%d"
+  configs = [
+    {
+      name = "/etc/nginx"
+      files = [
+        {
+          name     = "nginx.conf"
+          contents = base64encode(%q)
+        }
+      ]
+    }
+  ]
+}
+`, providerConfig, nameSuffix, nginxConfContents)
+}
+
+func TestAccConfigResourceAux(t *testing.T) {
+	nameSuffix := randomNameSuffix()
+
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: configResourceWithAux(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_configuration.test", "aux.#", "1"),
+					resource.TestCheckResourceAttr("f5ads_configuration.test", "aux.0.name", "/srv/www"),
+					resource.TestCheckResourceAttr("f5ads_configuration.test", "aux.0.files.#", "1"),
+					resource.TestCheckResourceAttr("f5ads_configuration.test", "aux.0.files.0.name", "index.html"),
+					resource.TestCheckResourceAttr(
+						"f5ads_configuration.test", "aux.0.files.0.contents",
+						base64.StdEncoding.EncodeToString([]byte(indexHTMLContents)),
+					),
+				),
+			},
+			{
+				ResourceName:      "f5ads_configuration.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			// Removing every aux block sends aux: [] in the PUT. Aux in state is
+			// read back from the new latest version, so it must be empty here.
+			{
+				Config: configResourceWithoutAux(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("f5ads_configuration.test", "aux.#"),
+					resource.TestCheckResourceAttr("f5ads_configuration.test", "configs.#", "1"),
+				),
+			},
+			{
+				RefreshState: true,
+				Check:        resource.TestCheckNoResourceAttr("f5ads_configuration.test", "aux.#"),
 			},
 		},
 	})

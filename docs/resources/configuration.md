@@ -37,6 +37,46 @@ locals {
         }
     }
   EOT
+
+  # TLS-enabled nginx.conf for the example with payloads. The ssl_certificate
+  # and ssl_certificate_key paths must match the payload paths below.
+  nginx_tls_conf = <<-EOT
+    user nginx;
+    worker_processes auto;
+    pid /run/nginx/nginx.pid;
+    worker_rlimit_nofile 524288;
+    events {
+        worker_connections 150000;
+    }
+
+    http {
+        server {
+            listen 443 ssl backlog=2048 default_server;
+            http2 on;
+            server_name _;
+
+            # The ssl_certificate and ssl_certificate_key paths must match the "payload" paths 
+            # in the f5ads_configuration resource.
+            ssl_certificate     /etc/nginx/tls/server.crt;
+            ssl_certificate_key /etc/nginx/tls/server.key;
+
+            location / {
+                return 200 "Hello from F5 ADS over TLS!";
+            }
+        }
+    }
+  EOT
+}
+
+# Managed certificate and private key referenced by the configuration payloads.
+resource "f5ads_certificate" "tls" {
+  name_prefix  = "example-tls-"
+  public_certs = filebase64("${path.module}/server.crt")
+  private_key  = filebase64("${path.module}/server.key")
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "f5ads_configuration" "example" {
@@ -48,6 +88,20 @@ resource "f5ads_configuration" "example" {
   name = "example-config"
   description = "Example F5 ADS configuration managed by Terraform."
 
+  # The nginx.conf must use the matching ssl_certificate and ssl_certificate_key paths.
+  payloads = [
+    {
+      type      = "managed_certificate"
+      object_id = f5ads_certificate.tls.id
+      paths     = ["/etc/nginx/tls/server.crt"]
+    },
+    {
+      type      = "managed_key"
+      object_id = f5ads_certificate.tls.id
+      paths     = ["/etc/nginx/tls/server.key"]
+    },
+  ]
+
   # The provider always uses "/etc/nginx/nginx.conf" as the main F5 ADS
   # configuration file, so that file must exist in the configs group below.
   configs = [
@@ -56,7 +110,7 @@ resource "f5ads_configuration" "example" {
       files = [
         {
           name     = "nginx.conf"
-          contents = base64encode(local.nginx_conf)
+          contents = base64encode(local.nginx_tls_conf)
         },
       ]
     },
@@ -102,6 +156,7 @@ resource "f5ads_configuration" "example2" {
 - `description` (String) Description of the F5 ADS configuration.
 - `name` (String) Unique name for the F5 ADS configuration. Must be 3-30 characters, start with a lowercase letter, end with a lowercase letter or digit, and contain only lowercase letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set.
 - `name_prefix` (String) Creates a unique name for the F5 ADS configuration beginning with this prefix. Must start with a lowercase letter and contain only lowercase letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set.
+- `payloads` (Attributes List) Managed certificates and private keys to deploy with this configuration. (see [below for nested schema](#nestedatt--payloads))
 
 ### Read-Only
 
@@ -124,6 +179,20 @@ Required:
 
 - `contents` (String) Base64-encoded contents of the file.
 - `name` (String) File name relative to the containing directory (e.g. "nginx.conf").
+
+
+
+<a id="nestedatt--payloads"></a>
+### Nested Schema for `payloads`
+
+Required:
+
+- `paths` (List of String) File paths where the certificate or private key will be deployed. Use these paths in the NGINX ssl_certificate or ssl_certificate_key directives.
+- `type` (String) Payload type: `managed_certificate` or `managed_key`.
+
+Optional:
+
+- `object_id` (String) ID of an `f5ads_certificate` resource.
 
 ## Import
 

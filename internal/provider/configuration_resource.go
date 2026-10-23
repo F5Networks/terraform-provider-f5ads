@@ -13,6 +13,7 @@ import (
 	configs "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/configs/2026-07-31"
 	naas "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/naas"
 	objects "github.com/F5Networks/terraform-provider-f5ads/internal/provider/objects"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -66,13 +67,21 @@ type configResource struct {
 
 // configResourceModel maps the resource schema data.
 type configResourceModel struct {
-	Id              types.String       `tfsdk:"id"`
-	Name            types.String       `tfsdk:"name"`
-	NamePrefix      types.String       `tfsdk:"name_prefix"`
-	Description     types.String       `tfsdk:"description"`
-	OrganizationID  types.String       `tfsdk:"organization_id"`
-	LatestVersionID types.String       `tfsdk:"latest_version_id"`
-	Configs         []ConfigGroupModel `tfsdk:"configs"`
+	Id              types.String         `tfsdk:"id"`
+	Name            types.String         `tfsdk:"name"`
+	NamePrefix      types.String         `tfsdk:"name_prefix"`
+	Description     types.String         `tfsdk:"description"`
+	OrganizationID  types.String         `tfsdk:"organization_id"`
+	LatestVersionID types.String         `tfsdk:"latest_version_id"`
+	Configs         []ConfigGroupModel   `tfsdk:"configs"`
+	Payloads        []ConfigPayloadModel `tfsdk:"payloads"`
+}
+
+// ConfigPayloadModel references a managed certificate or its private key.
+type ConfigPayloadModel struct {
+	Type     types.String   `tfsdk:"type"`
+	ObjectID types.String   `tfsdk:"object_id"`
+	Paths    []types.String `tfsdk:"paths"`
 }
 
 // ConfigGroupModel represents a group of F5 ADS configuration files.
@@ -158,6 +167,36 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Computed: true,
 				Description: "Identifier of the latest version of the NGINX configuration. " +
 					"Updating configuration files will create a new version.",
+			},
+			"payloads": schema.ListNestedAttribute{
+				Optional:    true,
+				Description: "Managed certificates and private keys to deploy with this configuration.",
+				Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"type": schema.StringAttribute{
+							Required:    true,
+							Description: "Payload type: `managed_certificate` or `managed_key`.",
+							Validators: []validator.String{
+								stringvalidator.OneOf(string(configs.NginxConfigPayloadManagedCertificate), string(configs.NginxConfigPayloadManagedKey)),
+							},
+						},
+						"object_id": schema.StringAttribute{
+							Optional:    true,
+							Description: "ID of an `f5ads_certificate` resource.",
+						},
+						"paths": schema.ListAttribute{
+							Required:    true,
+							ElementType: types.StringType,
+							Validators: []validator.List{
+								listvalidator.SizeAtLeast(1),
+								listvalidator.ValueStringsAre(stringvalidator.LengthAtLeast(1)),
+							},
+							Description: "File paths where the certificate or private key will be deployed. " +
+								"Use these paths in the NGINX ssl_certificate or ssl_certificate_key directives.",
+						},
+					},
+				},
 			},
 			"configs": schema.SetNestedAttribute{
 				Required:    true,
@@ -266,12 +305,18 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 	confPath := nginxConfPath
+	payloads, err := payloadsToAPI(plan.Payloads)
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to encode F5 ADS configuration payloads", err.Error())
+		return
+	}
 	cfgReq := configs.NginxConfigCreateRequest{
 		Name:        plan.Name.ValueString(),
 		Description: plan.Description.ValueStringPointer(),
 		Config: configs.NGINXaaSConfigRequest{
 			ConfPath: &confPath,
 			Configs:  configDirs,
+			Payloads: payloads,
 		},
 	}
 
@@ -447,6 +492,7 @@ func (r *configResource) fetchConfigVersion(
 	}
 
 	model.Configs = configsFromAPI(version.JSON200.Configs)
+	model.Payloads = payloadsFromAPI(version.JSON200.Payloads, model.Payloads)
 
 	return true
 }
@@ -492,11 +538,22 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 
 	confPath := nginxConfPath
+	payloads, err := payloadsToAPI(plan.Payloads)
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to encode F5 ADS configuration payloads", err.Error())
+		return
+	}
+	// Clear previously configured payloads when the attribute is removed.
+	if payloads == nil && len(state.Payloads) > 0 {
+		empty := configs.NGINXaaSConfigPayloads{}
+		payloads = &empty
+	}
 	cfgReq := configs.NginxConfigReplaceRequest{
 		Description: description,
 		Config: configs.NGINXaaSConfigRequest{
 			ConfPath: &confPath,
 			Configs:  configDirs,
+			Payloads: payloads,
 		},
 	}
 
@@ -593,6 +650,61 @@ func generateNameWithPrefix(prefix string) (string, error) {
 	}
 
 	return name, nil
+}
+
+// payloadsToAPI converts the Terraform payload models into the API request representation.
+func payloadsToAPI(payloads []ConfigPayloadModel) (*configs.NGINXaaSConfigPayloads, error) {
+	if payloads == nil {
+		return nil, nil
+	}
+	result := make(configs.NGINXaaSConfigPayloads, 0, len(payloads))
+	for _, payload := range payloads {
+		var objectID *naas.PayloadObjectID
+		if !payload.ObjectID.IsNull() && !payload.ObjectID.IsUnknown() {
+			var err error
+			objectID, err = objects.Parse(payload.ObjectID.ValueString())
+			if err != nil {
+				return nil, fmt.Errorf("unable to parse payload object_id: %w", err)
+			}
+		}
+		paths := make([]string, 0, len(payload.Paths))
+		for _, path := range payload.Paths {
+			paths = append(paths, path.ValueString())
+		}
+		result = append(result, configs.NGINXaaSConfigPayload{
+			Type:     configs.NGINXaaSConfigPayloadType(payload.Type.ValueString()),
+			ObjectId: objectID,
+			Paths:    paths,
+		})
+	}
+	return &result, nil
+}
+
+// payloadsFromAPI converts the payloads returned by the API into Terraform models.
+func payloadsFromAPI(payloads *configs.NGINXaaSConfigPayloads, previous []ConfigPayloadModel) []ConfigPayloadModel {
+	if payloads == nil || len(*payloads) == 0 {
+		if previous == nil {
+			return nil
+		}
+		return []ConfigPayloadModel{}
+	}
+	result := make([]ConfigPayloadModel, 0, len(*payloads))
+	for _, payload := range *payloads {
+		objectID := types.StringNull()
+		if payload.ObjectId != nil {
+			objectID = types.StringValue(payload.ObjectId.String())
+		}
+		paths := make([]types.String, 0, len(payload.Paths))
+		for _, path := range payload.Paths {
+			paths = append(paths, types.StringValue(path))
+		}
+		result = append(result, ConfigPayloadModel{
+			Type:     types.StringValue(string(payload.Type)),
+			ObjectID: objectID,
+			Paths:    paths,
+		})
+	}
+	return result
 }
 
 // configsToAPI converts the configuration file groups from the Terraform

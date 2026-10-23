@@ -2,13 +2,9 @@
 
 The F5 Application Delivery Service (F5 ADS) Terraform Provider allows you to manage F5 ADS resources via [Terraform](https://www.terraform.io/). This provider enables you to define and manage your F5 ADS infrastructure as code.
 
-> [!IMPORTANT]
-> This provider is currently in early development. Features and APIs may change as the provider matures.
-
 ## Documentation
 
-- [Terraform Registry Documentation](https://registry.terraform.io/providers/F5Networks/f5ads/latest/docs) _(coming soon)_
-- [Examples](./examples/)
+- [Terraform Registry Documentation](https://registry.terraform.io/providers/F5Networks/f5ads/latest/docs)
 
 ## Requirements
 
@@ -26,7 +22,7 @@ terraform {
   required_providers {
     f5ads = {
       source  = "F5Networks/f5ads"
-      version = "0.1.0-alpha"
+      version = "0.1.0"
     }
   }
 }
@@ -68,59 +64,17 @@ export F5ADS_CLIENT_SECRET="your-client-secret"
 
 ## Usage
 
-Here's a basic example of creating an F5 ADS deployment:
+Refer to the following examples:
 
-```hcl
-resource "f5ads_deployment" "example" {
-  name                    = "my-deployment"
-  capacity                = 20
-  waf_enabled             = true
-  nginx_config_id         = "cfg_example123"
-  nginx_config_version_id = "cv_example456"
-
-  google_cloud_properties = {
-    region             = "us-east1"
-    network_attachment = "projects/my-project/regions/us-east1/networkAttachments/my-attachment"
-
-    # Exactly one of `managed_public_endpoint` or `private_endpoint` must be set.
-    frontend = {
-      managed_public_endpoint = {
-        acl = [
-          {
-            source_prefixes = ["0.0.0.0/0"]
-            port_range      = "80"
-            protocol        = "tcp"
-          },
-          {
-            source_prefixes = ["0.0.0.0/0"]
-            port_range      = "443"
-            protocol        = "tcp"
-          }
-        ]
-      }
-    }
-  }
-}
-```
-
-To expose the deployment through Google Private Service Connect instead, replace the
-`managed_public_endpoint` block with a `private_endpoint` block:
-
-```hcl
-    frontend = {
-      private_endpoint = {
-        service_attachment_accept_list = [
-          "my-gcp-project",
-        ]
-      }
-    }
-```
-
-For more examples, see the [examples](./examples/) directory.
+- [Deployments](https://registry.terraform.io/providers/F5Networks/f5ads/latest/docs/resources/deployment#example-usage)
+- [Configurations](https://registry.terraform.io/providers/F5Networks/f5ads/latest/docs/resources/configuration#example-usage)
+- [Certificates](https://registry.terraform.io/providers/F5Networks/f5ads/latest/docs/resources/certificate#example-usage)
 
 ## Available Resources
 
 - `f5ads_deployment` - Manage F5 ADS deployments
+- `f5ads_configuration` - Manage F5 ADS configurations
+- `f5ads_certificate` - Manage F5 ADS certificates
 
 ## Available Data Sources
 

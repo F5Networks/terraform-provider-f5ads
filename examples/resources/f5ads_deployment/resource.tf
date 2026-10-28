@@ -109,6 +109,9 @@ resource "f5ads_deployment" "aws_managed_public_endpoint" {
   aws_cloud_properties = {
     region          = "us-east-1"
     ipv4_cidr_block = "10.0.0.0/24"
+    identity = {
+      customer_role_arn = "arn:aws:iam::123456789012:role/F5-ADS-CloudWatch-Role"
+    }
     frontend = {
       managed_public_endpoint = {
         acl = [

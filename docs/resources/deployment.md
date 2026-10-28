@@ -124,6 +124,9 @@ resource "f5ads_deployment" "aws_managed_public_endpoint" {
   aws_cloud_properties = {
     region          = "us-east-1"
     ipv4_cidr_block = "10.0.0.0/24"
+    identity = {
+      customer_role_arn = "arn:aws:iam::123456789012:role/F5-ADS-CloudWatch-Role"
+    }
     frontend = {
       managed_public_endpoint = {
         acl = [
@@ -176,6 +179,10 @@ Required:
 - `ipv4_cidr_block` (String) IPv4 CIDR block for the AWS VPC used by the deployment. Changing this value forces a new resource to be created.
 - `region` (String) AWS region where the deployment is hosted (e.g. "us-east-1"). Changing this value forces a new resource to be created.
 
+Optional:
+
+- `identity` (Attributes) Identity configuration for the deployment. Remove this block to disable IAM role association. (see [below for nested schema](#nestedatt--aws_cloud_properties--identity))
+
 <a id="nestedatt--aws_cloud_properties--frontend"></a>
 ### Nested Schema for `aws_cloud_properties.frontend`
 
@@ -204,6 +211,14 @@ Required:
 - `source_prefixes` (List of String) List of source CIDR prefixes allowed by this ACL rule.
 
 
+
+
+<a id="nestedatt--aws_cloud_properties--identity"></a>
+### Nested Schema for `aws_cloud_properties.identity`
+
+Required:
+
+- `customer_role_arn` (String) ARN of the IAM role created in your AWS account for F5 ADS to assume, granting access to services such as CloudWatch and AWS Secrets Manager.
 
 
 

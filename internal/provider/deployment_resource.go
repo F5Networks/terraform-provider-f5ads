@@ -90,9 +90,14 @@ type PrivateEndpointModel struct {
 }
 
 type AwsCloudPropertiesModel struct {
-	Region        types.String     `tfsdk:"region"`
-	Ipv4CidrBlock types.String     `tfsdk:"ipv4_cidr_block"`
-	Frontend      AwsFrontendModel `tfsdk:"frontend"`
+	Region        types.String      `tfsdk:"region"`
+	Ipv4CidrBlock types.String      `tfsdk:"ipv4_cidr_block"`
+	Identity      *AwsIdentityModel `tfsdk:"identity"`
+	Frontend      AwsFrontendModel  `tfsdk:"frontend"`
+}
+
+type AwsIdentityModel struct {
+	CustomerRoleArn types.String `tfsdk:"customer_role_arn"`
 }
 
 type AwsFrontendModel struct {
@@ -294,6 +299,19 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 							stringplanmodifier.RequiresReplace(),
 						},
 					},
+					"identity": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "Identity configuration for the deployment. Remove this block to disable IAM role association.",
+						Attributes: map[string]schema.Attribute{
+							"customer_role_arn": schema.StringAttribute{
+								Required:    true,
+								Description: "ARN of the IAM role created in your AWS account for F5 ADS to assume, granting access to services such as CloudWatch and AWS Secrets Manager.",
+								Validators: []validator.String{
+									stringvalidator.LengthAtLeast(1),
+								},
+							},
+						},
+					},
 					"frontend": schema.SingleNestedAttribute{
 						Required:    true,
 						Description: "Frontend networking configuration for the deployment.",
@@ -432,6 +450,12 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 		depAwsCloudProperties := &deployments.CreateAWSDeploymentProperties{
 			Region:        plan.AwsCloudProperties.Region.ValueString(),
 			Ipv4CidrBlock: plan.AwsCloudProperties.Ipv4CidrBlock.ValueString(),
+		}
+
+		if plan.AwsCloudProperties.Identity != nil {
+			depAwsCloudProperties.Identity = &deployments.CreateAWSIdentity{
+				CustomerRoleArn: plan.AwsCloudProperties.Identity.CustomerRoleArn.ValueString(),
+			}
 		}
 
 		var depFrontendManagedPublicEndpoint *deployments.CreateManagedPublicEndpoint
@@ -674,6 +698,15 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 		awsCloudProperties.Region = types.StringValue(deploymentResponse.CloudProperties.Aws.Region)
 		awsCloudProperties.Ipv4CidrBlock = types.StringValue(deploymentResponse.CloudProperties.Aws.Ipv4CidrBlock)
 
+		var identity *AwsIdentityModel
+		if deploymentResponse.CloudProperties.Aws.Identity != nil &&
+			deploymentResponse.CloudProperties.Aws.Identity.CustomerRoleArn != nil {
+			identity = &AwsIdentityModel{
+				CustomerRoleArn: types.StringValue(*deploymentResponse.CloudProperties.Aws.Identity.CustomerRoleArn),
+			}
+		}
+		awsCloudProperties.Identity = identity
+
 		var frontend AwsFrontendModel
 		if deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint != nil {
 			var managedPublicEndpoint ManagedPublicEndpointModel
@@ -852,10 +885,19 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 			depFrontendManagedPublicEndpoint.Acl = &acl
 		}
 
+		emptyStr := ""
+		customerRoleArn := &emptyStr
+		if plan.AwsCloudProperties.Identity != nil {
+			customerRoleArn = plan.AwsCloudProperties.Identity.CustomerRoleArn.ValueStringPointer()
+		}
+
 		depUpdateReq.CloudProperties = &deployments.UpdateDeploymentCloudProperties{
 			Aws: &deployments.UpdateAWSDeploymentProperties{
 				Frontend: &deployments.UpdateAWSFrontendInfo{
 					ManagedPublicEndpoint: depFrontendManagedPublicEndpoint,
+				},
+				Identity: &deployments.UpdateAWSIdentity{
+					CustomerRoleArn: customerRoleArn,
 				},
 			},
 		}

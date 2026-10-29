@@ -43,7 +43,7 @@ const (
 	deploymentsAPIVersion  = "api/2026-07-31"
 	certificatesAPIVersion = "api/2026-07-31"
 	configsAPIVersion      = "api/2026-07-31"
-	authAPIVersion         = "api/v1"
+	authAPIVersion         = "api/2026-07-31"
 	namespace              = "default"
 	apiDomain              = "api.nginxaas.net"
 )

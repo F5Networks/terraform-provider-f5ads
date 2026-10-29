@@ -389,6 +389,77 @@ resource "f5ads_deployment" "test" {
 `, providerConfig, baseNginxConfig(), nameSuffix)
 }
 
+func awsManagedPublicEndpointDeploymentUpdateIdentity(nameSuffix int, customerRoleArn string) string {
+	return fmt.Sprintf(
+		`
+%s
+
+%s
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-%[3]d"
+  capacity = 20
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
+  waf_enabled = true
+  aws_cloud_properties = {
+	region = "us-east-1"
+	ipv4_cidr_block = "10.0.0.0/24"
+	identity = {
+	  customer_role_arn = "%s"
+	}
+	frontend = {
+	  managed_public_endpoint = {
+		acl = [
+		  {
+			source_prefixes = [
+			  "0.0.0.0/0",
+			]
+			port_range = "80"
+			protocol = "tcp"
+		  }
+		]
+	  }
+	}
+  }
+}
+`, providerConfig, baseNginxConfig(), nameSuffix, customerRoleArn)
+}
+
+func awsManagedPublicEndpointDeploymentRemoveIdentity(nameSuffix int) string {
+	return fmt.Sprintf(
+		`
+%s
+
+%s
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-%[3]d"
+  capacity = 20
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
+  waf_enabled = true
+  aws_cloud_properties = {
+	region = "us-east-1"
+	ipv4_cidr_block = "10.0.0.0/24"
+	frontend = {
+	  managed_public_endpoint = {
+		acl = [
+		  {
+			source_prefixes = [
+			  "0.0.0.0/0",
+			]
+			port_range = "80"
+			protocol = "tcp"
+		  }
+		]
+	  }
+	}
+  }
+}
+`, providerConfig, baseNginxConfig(), nameSuffix)
+}
+
 func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
 	resource.ParallelTest(t, resource.TestCase{
@@ -433,6 +504,33 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_id", "f5ads_configuration.test", "id"),
 					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_version_id", "f5ads_configuration.test", "latest_version_id"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "waf_enabled", "true"),
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "aws_cloud_properties.identity"),
+				),
+			},
+			{
+				Config: awsManagedPublicEndpointDeploymentUpdateIdentity(nameSuffix, "arn:aws:iam::123456789012:role/F5-ADS-CloudWatch-Role"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(
+						"f5ads_deployment.test",
+						"aws_cloud_properties.identity.customer_role_arn",
+						"arn:aws:iam::123456789012:role/F5-ADS-CloudWatch-Role",
+					),
+				),
+			},
+			{
+				Config: awsManagedPublicEndpointDeploymentUpdateIdentity(nameSuffix, "arn:aws:iam::123456789012:role/F5-ADS-SecretsManager-Role"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(
+						"f5ads_deployment.test",
+						"aws_cloud_properties.identity.customer_role_arn",
+						"arn:aws:iam::123456789012:role/F5-ADS-SecretsManager-Role",
+					),
+				),
+			},
+			{
+				Config: awsManagedPublicEndpointDeploymentRemoveIdentity(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "aws_cloud_properties.identity"),
 				),
 			},
 		},

@@ -220,7 +220,12 @@ func (p *nginxaasProvider) Configure(ctx context.Context, req provider.Configure
 		return
 	}
 
-	token, err := exchangeClientCredentialsForToken(ctx, baseURL, clientID, clientSecret)
+	userAgent := fmt.Sprintf(
+		"terraform-provider-f5ads/%s; Terraform/%s",
+		p.version,
+		req.TerraformVersion,
+	)
+	token, err := exchangeClientCredentialsForToken(ctx, baseURL, clientID, clientSecret, userAgent)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to authenticate with F5 ADS API",
@@ -234,11 +239,6 @@ func (p *nginxaasProvider) Configure(ctx context.Context, req provider.Configure
 	configsHost := baseURL.JoinPath(configsAPIVersion, "namespaces", namespace)
 	certificatesHost := baseURL.JoinPath(certificatesAPIVersion, "namespaces", namespace)
 
-	userAgent := fmt.Sprintf(
-		"terraform-provider-f5ads/%s; Terraform/%s",
-		p.version,
-		req.TerraformVersion,
-	)
 	reqEditor := func(ctx context.Context, req *http.Request) error {
 		req.Header.Add("Authorization", "Bearer "+token)
 		req.Header.Add("User-Agent", userAgent)
@@ -307,6 +307,7 @@ func exchangeClientCredentialsForToken(
 	baseURL *url.URL,
 	clientID string,
 	clientSecret string,
+	userAgent string,
 ) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -326,6 +327,7 @@ func exchangeClientCredentialsForToken(
 		return "", fmt.Errorf("unable to create auth token request: %w", err)
 	}
 	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("User-Agent", userAgent)
 
 	client := http.DefaultClient
 	resp, err := client.Do(req)

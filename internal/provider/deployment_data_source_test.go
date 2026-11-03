@@ -24,6 +24,7 @@ func TestAccDeploymentDataSourceManagedPublicEndpoint(t *testing.T) {
 					`data "f5ads_deployment" "test" { id = f5ads_deployment.test.id }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
+					resource.TestCheckResourceAttr("data.f5ads_deployment.test", "description", fmt.Sprintf("Acceptance test for nginxacc-%d", nameSuffix)),
 					resource.TestCheckResourceAttrSet("data.f5ads_deployment.test", "nginx_version"),
 					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "id"),
 					resource.TestCheckResourceAttr("data.f5ads_deployment.test", "capacity", "10"),
@@ -73,6 +74,7 @@ func TestAccDeploymentDataSourcePrivateEndpoint(t *testing.T) {
 					`data "f5ads_deployment" "test" { id = f5ads_deployment.test.id }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
+					resource.TestCheckResourceAttr("data.f5ads_deployment.test", "description", fmt.Sprintf("Acceptance test for nginxacc-%d", nameSuffix)),
 					resource.TestCheckResourceAttr("data.f5ads_deployment.test", "capacity", "10"),
 					resource.TestCheckResourceAttr("data.f5ads_deployment.test", "cloud", "google"),
 					resource.TestCheckResourceAttr("data.f5ads_deployment.test", "google_cloud_properties.region", "us-east1"),

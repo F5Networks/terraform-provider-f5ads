@@ -46,6 +46,7 @@ resource "f5ads_configuration" "example" {
 # Example F5 ADS Google deployment with Managed Public Endpoint.
 resource "f5ads_deployment" "managed_public_endpoint" {
   name        = "mpe-deployment"
+  description = "Example F5 ADS deployment managed by Terraform."
   capacity    = 20
   waf_enabled = true
   nginx_config_id         = f5ads_configuration.example.id

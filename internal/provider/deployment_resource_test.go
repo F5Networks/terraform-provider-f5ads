@@ -20,6 +20,7 @@ func googleCloudManagedPublicEndpointDeployment(nameSuffix int) string {
 
 resource "f5ads_deployment" "test" {
   name = "nginxacc-%[4]d"
+  description = "Acceptance test for nginxacc-%[4]d"
   capacity = 10
   nginx_config_id = f5ads_configuration.test.id
   nginx_config_version_id = f5ads_configuration.test.latest_version_id
@@ -55,6 +56,7 @@ func googleCloudPrivateEndpointDeployment(nameSuffix int) string {
 
 resource "f5ads_deployment" "test" {
   name = "nginxacc-%[4]d"
+  description = "Acceptance test for nginxacc-%[4]d"
   capacity = 10
   nginx_config_id = f5ads_configuration.test.id
   nginx_config_version_id = f5ads_configuration.test.latest_version_id
@@ -80,6 +82,7 @@ func googleCloudPrivateEndpointDeploymentUpdateAcceptList(nameSuffix int, gcpPro
 
 resource "f5ads_deployment" "test" {
   name = "nginxacc-%[4]d"
+  description = "Acceptance test for nginxacc-%[4]d"
   capacity = 10
   nginx_config_id = f5ads_configuration.test.id
   nginx_config_version_id = f5ads_configuration.test.latest_version_id
@@ -109,6 +112,7 @@ func googleCloudManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix int) st
 
 resource "f5ads_deployment" "test" {
   name = "nginxacc-%[4]d"
+  description = "Acceptance test for nginxacc-%[4]d"
   capacity = 20
   nginx_config_id = f5ads_configuration.test.id
   nginx_config_version_id = f5ads_configuration.test.latest_version_id
@@ -144,6 +148,7 @@ func googleCloudManagedPublicEndpointDeploymentUpdateIdentityAndObservability(na
 
 resource "f5ads_deployment" "test" {
   name = "nginxacc-%[4]d"
+  description = "Acceptance test for nginxacc-%[4]d"
   capacity = 10
   nginx_config_id = f5ads_configuration.test.id
   nginx_config_version_id = f5ads_configuration.test.latest_version_id
@@ -184,6 +189,7 @@ func googleCloudManagedPublicEndpointDeploymentUpdateWaf(nameSuffix int) string 
 
 resource "f5ads_deployment" "test" {
   name = "nginxacc-%[4]d"
+  description = "Acceptance test for nginxacc-%[4]d"
   capacity = 10
   nginx_config_id = f5ads_configuration.test.id
   nginx_config_version_id = f5ads_configuration.test.latest_version_id
@@ -230,6 +236,7 @@ func TestAccDeploymentResourceGoogleManagedPublicEndpoint(t *testing.T) {
 				Config: googleCloudManagedPublicEndpointDeployment(nameSuffix),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "description", fmt.Sprintf("Acceptance test for nginxacc-%d", nameSuffix)),
 					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "nginx_version"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "10"),
 					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "waf_enabled"),
@@ -298,6 +305,40 @@ func awsManagedPublicEndpointDeployment(nameSuffix int) string {
 
 resource "f5ads_deployment" "test" {
   name = "nginxacc-%[3]d"
+  capacity = 10
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
+  aws_cloud_properties = {
+	region = "us-east-1"
+	ipv4_cidr_block = "10.0.0.0/24"
+	frontend = {
+	  managed_public_endpoint = {
+		acl = [
+		  {
+			source_prefixes = [
+			  "0.0.0.0/0",
+			]
+			port_range = "80"
+			protocol = "tcp"
+		  }
+		]
+	  }
+	}
+  }
+}
+`, providerConfig, baseNginxConfig(), nameSuffix)
+}
+
+func awsManagedPublicEndpointDeploymentWithDescription(nameSuffix int) string {
+	return fmt.Sprintf(
+		`
+%s
+
+%s
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-%[3]d"
+  description = "Acceptance test for nginxacc-%[3]d"
   capacity = 10
   nginx_config_id = f5ads_configuration.test.id
   nginx_config_version_id = f5ads_configuration.test.latest_version_id
@@ -472,6 +513,7 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_version_id", "f5ads_configuration.test", "latest_version_id"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "10"),
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "description"),
 					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "waf_enabled"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "cloud", "aws"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.region", "us-east-1"),
@@ -485,6 +527,18 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 				ResourceName:      "f5ads_deployment.test",
 				ImportState:       true,
 				ImportStateVerify: true,
+			},
+			{
+				Config: awsManagedPublicEndpointDeploymentWithDescription(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "description", fmt.Sprintf("Acceptance test for nginxacc-%d", nameSuffix)),
+				),
+			},
+			{
+				Config: awsManagedPublicEndpointDeployment(nameSuffix),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "description"),
+				),
 			},
 			{
 				Config: awsManagedPublicEndpointDeploymentUpdateCapacity(nameSuffix),
@@ -553,6 +607,7 @@ func TestAccDeploymentResourceGooglePrivateEndpoint(t *testing.T) {
 				Config: googleCloudPrivateEndpointDeployment(nameSuffix),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "description", fmt.Sprintf("Acceptance test for nginxacc-%d", nameSuffix)),
 					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "google_cloud_properties.frontend.private_endpoint.service_attachment"),
 					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "google_cloud_properties.frontend.private_endpoint.service_attachment_accept_list"),
 				),

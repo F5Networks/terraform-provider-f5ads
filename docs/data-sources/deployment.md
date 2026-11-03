@@ -29,6 +29,7 @@ data "f5ads_deployment" "example" {
 
 - `capacity` (Number) Reserved capacity for the deployment, expressed in NCUs (NGINX Capacity Units).
 - `cloud` (String) Cloud provider hosting the deployment (e.g. "google").
+- `description` (String) Description of the deployment.
 - `google_cloud_properties` (Attributes) Google Cloud-specific properties for the deployment. (see [below for nested schema](#nestedatt--google_cloud_properties))
 - `name` (String) Name of the deployment.
 - `nginx_config_id` (String) Identifier of the NGINX configuration applied to the deployment.

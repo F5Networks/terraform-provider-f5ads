@@ -61,6 +61,7 @@ resource "f5ads_configuration" "example" {
 # Example F5 ADS Google deployment with Managed Public Endpoint.
 resource "f5ads_deployment" "managed_public_endpoint" {
   name        = "mpe-deployment"
+  description = "Example F5 ADS deployment managed by Terraform."
   capacity    = 20
   waf_enabled = true
   nginx_config_id         = f5ads_configuration.example.id
@@ -160,6 +161,7 @@ resource "f5ads_deployment" "aws_managed_public_endpoint" {
 ### Optional
 
 - `aws_cloud_properties` (Attributes) AWS-specific properties for the deployment. Required when deploying to AWS. (see [below for nested schema](#nestedatt--aws_cloud_properties))
+- `description` (String) Description of the deployment. Remove this field to clear the description.
 - `google_cloud_properties` (Attributes) Google Cloud-specific properties for the deployment. Required when deploying to Google Cloud. (see [below for nested schema](#nestedatt--google_cloud_properties))
 - `waf_enabled` (Boolean) Enables or disables F5 WAF for NGINX. Remove this field to disable WAF.
 

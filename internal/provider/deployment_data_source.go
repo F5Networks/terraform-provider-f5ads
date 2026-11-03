@@ -33,6 +33,7 @@ type deploymentDataSource struct {
 type deploymentDataSourceModel struct {
 	Id                    types.String                `tfsdk:"id"`
 	Name                  types.String                `tfsdk:"name"`
+	Description           types.String                `tfsdk:"description"`
 	Cloud                 types.String                `tfsdk:"cloud"`
 	NginxVersion          types.String                `tfsdk:"nginx_version"`
 	Capacity              types.Int64                 `tfsdk:"capacity"`
@@ -60,6 +61,10 @@ func (d *deploymentDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 			"name": schema.StringAttribute{
 				Computed:    true,
 				Description: "Name of the deployment.",
+			},
+			"description": schema.StringAttribute{
+				Computed:    true,
+				Description: "Description of the deployment.",
 			},
 			"cloud": schema.StringAttribute{
 				Computed:    true,
@@ -230,6 +235,10 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	deploymentResponse := deployment.JSON200
 	state.Id = types.StringValue(deploymentResponse.Id.String())
 	state.Name = types.StringValue(deploymentResponse.Name)
+	state.Description = types.StringNull()
+	if deploymentResponse.Description != "" {
+		state.Description = types.StringValue(deploymentResponse.Description)
+	}
 	state.Cloud = types.StringValue(string(deploymentResponse.Cloud))
 	state.NginxVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
 	state.Capacity = types.Int64Value(int64(deploymentResponse.Scale.Capacity))

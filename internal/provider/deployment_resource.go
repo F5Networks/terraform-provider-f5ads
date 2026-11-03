@@ -43,6 +43,7 @@ type deploymentResource struct {
 type deploymentResourceModel struct {
 	Id                    types.String                `tfsdk:"id"`
 	Name                  types.String                `tfsdk:"name"`
+	Description           types.String                `tfsdk:"description"`
 	Cloud                 types.String                `tfsdk:"cloud"`
 	NginxVersion          types.String                `tfsdk:"nginx_version"`
 	GoogleCloudProperties *GoogleCloudPropertiesModel `tfsdk:"google_cloud_properties"`
@@ -120,6 +121,13 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Unique name for the deployment. Changing this value forces a new resource to be created.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"description": schema.StringAttribute{
+				Optional:    true,
+				Description: "Description of the deployment. Remove this field to clear the description.",
+				Validators: []validator.String{
+					stringvalidator.LengthAtLeast(1),
 				},
 			},
 			"id": schema.StringAttribute{
@@ -371,6 +379,7 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 	// Generate API request body from plan
 	var depReq deployments.CreateDeploymentJSONRequestBody
 	depReq.Name = plan.Name.ValueString()
+	depReq.Description = plan.Description.ValueStringPointer()
 	depReq.Scale.Capacity = int(plan.Capacity.ValueInt64())
 	depReq.WafEnabled = plan.WafEnabled.ValueBoolPointer()
 	nginxConfigId, err := objects.Parse(plan.NginxConfigID.ValueString())
@@ -608,6 +617,10 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 	deploymentResponse := deployment.JSON200
 	state.Id = types.StringValue(deploymentResponse.Id.String())
 	state.Name = types.StringValue(deploymentResponse.Name)
+	state.Description = types.StringNull()
+	if deploymentResponse.Description != "" {
+		state.Description = types.StringValue(deploymentResponse.Description)
+	}
 	state.Cloud = types.StringValue(string(deploymentResponse.Cloud))
 	state.NginxVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
 	state.Capacity = types.Int64Value(int64(deploymentResponse.Scale.Capacity))
@@ -786,7 +799,14 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
+	emptyStr := ""
+	description := &emptyStr
+	if !plan.Description.IsNull() {
+		description = plan.Description.ValueStringPointer()
+	}
+
 	depUpdateReq := deployments.UpdateDeploymentJSONRequestBody{
+		Description: description,
 		Scale: &deployments.DeploymentScale{
 			Capacity: int(plan.Capacity.ValueInt64()),
 		},

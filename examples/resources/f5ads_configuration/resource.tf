@@ -127,3 +127,54 @@ resource "f5ads_configuration" "example2" {
     create_before_destroy = true
   }
 }
+
+# Example with auxiliary files. Removing every aux block clears
+# all auxiliary content from the configuration on the next apply.
+resource "f5ads_configuration" "example_aux" {
+  name = "example-aux-config"
+
+  configs = [
+    {
+      name = "/etc/nginx"
+      files = [
+        {
+          name = "nginx.conf"
+          contents = base64encode(<<-EOT
+            user nginx;
+            worker_processes auto;
+            pid /run/nginx/nginx.pid;
+            events {
+                worker_connections 1024;
+            }
+
+            http {
+                server {
+                    listen 80 default_server;
+                    server_name _;
+
+                    # Serves the aux file /srv/www/index.html.
+                    location / {
+                        root  /srv/www;
+                        index index.html;
+                    }
+                }
+            }
+          EOT
+          )
+        },
+      ]
+    },
+  ]
+
+  aux = [
+    {
+      name = "/srv/www"
+      files = [
+        {
+          name     = "index.html"
+          contents = base64encode("<html><body>Hello from F5 ADS!</body></html>\n")
+        },
+      ]
+    },
+  ]
+}

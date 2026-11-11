@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	deployments "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/deployments/2026-07-31"
@@ -91,10 +92,11 @@ type PrivateEndpointModel struct {
 }
 
 type AwsCloudPropertiesModel struct {
-	Region        types.String      `tfsdk:"region"`
-	Ipv4CidrBlock types.String      `tfsdk:"ipv4_cidr_block"`
-	Identity      *AwsIdentityModel `tfsdk:"identity"`
-	Frontend      AwsFrontendModel  `tfsdk:"frontend"`
+	Region        types.String        `tfsdk:"region"`
+	Ipv4CidrBlock types.String        `tfsdk:"ipv4_cidr_block"`
+	Identity      *AwsIdentityModel   `tfsdk:"identity"`
+	Frontend      AwsFrontendModel    `tfsdk:"frontend"`
+	Monitoring    *AwsMonitoringModel `tfsdk:"monitoring"`
 }
 
 type AwsIdentityModel struct {
@@ -360,6 +362,62 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 							},
 						},
 					},
+					"monitoring": schema.SingleNestedAttribute{
+						Optional: true,
+						Description: "Configuration for exporting deployment telemetry into AWS CloudWatch. " +
+							"Requires an identity customer_role_arn with permission to write to the CloudWatch groups. " +
+							"Remove this block to disable telemetry export.",
+						Attributes: map[string]schema.Attribute{
+							"logs": schema.SingleNestedAttribute{
+								Optional:    true,
+								Description: "Configuration for exporting deployment logs to AWS CloudWatch.",
+								Attributes: map[string]schema.Attribute{
+									"enabled": schema.BoolAttribute{
+										Required:    true,
+										Description: "Whether exporting deployment logs is enabled.",
+									},
+									"cloudwatch_group": schema.StringAttribute{
+										Optional: true,
+										Computed: true,
+										Description: "CloudWatch group name to export deployment logs into. Can only be set when enabled is true. Defaults to the deployment ID when not set at creation; " +
+											"Must be 1-512 characters consisting only of a-z, A-Z, 0-9, '_', '-', '/', '.', '#' and must not start with 'aws/'.",
+										PlanModifiers: []planmodifier.String{
+											stringplanmodifier.UseNonNullStateForUnknown(),
+										},
+										Validators: []validator.String{
+											stringvalidator.RegexMatches(cloudwatchGroupRegex,
+												"must be 1-512 characters long, consist only of a-z, A-Z, 0-9, '_', '-', '/', '.', '#', "+
+													"and must not start with the reserved prefix 'aws/'"),
+										},
+									},
+								},
+							},
+							"metrics": schema.SingleNestedAttribute{
+								Optional:    true,
+								Description: "Configuration for exporting deployment metrics to AWS CloudWatch.",
+								Attributes: map[string]schema.Attribute{
+									"enabled": schema.BoolAttribute{
+										Required:    true,
+										Description: "Whether exporting deployment metrics is enabled.",
+									},
+									"cloudwatch_group": schema.StringAttribute{
+										Optional: true,
+										Computed: true,
+										Description: "CloudWatch group name to export deployment metrics into. Can only be set when enabled is true. Defaults to the deployment ID when not set at creation; " +
+											"Must be 1-512 characters consisting only of a-z, A-Z, 0-9, '_', '-', '/', '.', '#' and must not start with 'aws/'.",
+										PlanModifiers: []planmodifier.String{
+											stringplanmodifier.UseNonNullStateForUnknown(),
+										},
+										Validators: []validator.String{
+											stringvalidator.RegexMatches(cloudwatchGroupRegex,
+												"must be 1-512 characters long, consist only of a-z, A-Z, 0-9, '_', '-', '/', '.', '#', "+
+													"and must not start with the reserved prefix 'aws/'"),
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -461,6 +519,8 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 			Ipv4CidrBlock: plan.AwsCloudProperties.Ipv4CidrBlock.ValueString(),
 		}
 
+		depAwsCloudProperties.Monitoring = awsMonitoringToAPI(plan.AwsCloudProperties.Monitoring)
+
 		if plan.AwsCloudProperties.Identity != nil {
 			depAwsCloudProperties.Identity = &deployments.CreateAWSIdentity{
 				CustomerRoleArn: plan.AwsCloudProperties.Identity.CustomerRoleArn.ValueString(),
@@ -557,6 +617,8 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 			plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.ServiceEndpoint = types.StringValue(
 				*deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.ServiceEndpoint)
 		}
+		plan.AwsCloudProperties.Monitoring = awsMonitoringFromAPI(
+			plan.AwsCloudProperties.Monitoring, deploymentResponse.CloudProperties.Aws.Monitoring)
 	}
 
 	// Set state to fully populated data
@@ -707,6 +769,10 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 	}
 
 	if deploymentResponse.CloudProperties.Aws != nil {
+		var priorMonitoring *AwsMonitoringModel
+		if state.AwsCloudProperties != nil {
+			priorMonitoring = state.AwsCloudProperties.Monitoring
+		}
 		var awsCloudProperties AwsCloudPropertiesModel
 		awsCloudProperties.Region = types.StringValue(deploymentResponse.CloudProperties.Aws.Region)
 		awsCloudProperties.Ipv4CidrBlock = types.StringValue(deploymentResponse.CloudProperties.Aws.Ipv4CidrBlock)
@@ -748,6 +814,7 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 		}
 
 		awsCloudProperties.Frontend = frontend
+		awsCloudProperties.Monitoring = awsMonitoringFromAPI(priorMonitoring, deploymentResponse.CloudProperties.Aws.Monitoring)
 		state.AwsCloudProperties = &awsCloudProperties
 	}
 
@@ -919,6 +986,8 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 				Identity: &deployments.UpdateAWSIdentity{
 					CustomerRoleArn: customerRoleArn,
 				},
+				// Always send monitoring so that removing the block disables export.
+				Monitoring: awsMonitoringToAPI(plan.AwsCloudProperties.Monitoring),
 			},
 		}
 	}
@@ -984,6 +1053,8 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 			plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.ServiceEndpoint = types.StringValue(
 				*deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.ServiceEndpoint)
 		}
+		plan.AwsCloudProperties.Monitoring = awsMonitoringFromAPI(
+			plan.AwsCloudProperties.Monitoring, deploymentResponse.CloudProperties.Aws.Monitoring)
 	}
 
 	plan.Capacity = types.Int64Value(int64(deploymentResponse.Scale.Capacity))
@@ -1112,6 +1183,29 @@ func (r *deploymentResource) ValidateConfig(
 			return
 		}
 	}
+
+	// cloudwatch_group can only be set when export is enabled for that section.
+	if data.AwsCloudProperties != nil && data.AwsCloudProperties.Monitoring != nil {
+		sections := []struct {
+			name    string
+			section *AwsMonitoringExportModel
+		}{
+			{"logs", data.AwsCloudProperties.Monitoring.Logs},
+			{"metrics", data.AwsCloudProperties.Monitoring.Metrics},
+		}
+		for _, s := range sections {
+			if s.section == nil || s.section.Enabled.IsUnknown() || s.section.CloudwatchGroup.IsNull() {
+				continue
+			}
+			if !s.section.Enabled.ValueBool() {
+				resp.Diagnostics.AddAttributeError(
+					path.Root("aws_cloud_properties").AtName("monitoring").AtName(s.name).AtName("cloudwatch_group"),
+					"Invalid Configuration",
+					fmt.Sprintf("monitoring.%[1]s.cloudwatch_group can only be set when monitoring.%[1]s.enabled is true.", s.name),
+				)
+			}
+		}
+	}
 }
 
 func waitUntilDeploymentReady(
@@ -1211,4 +1305,82 @@ func waitUntilDeploymentDeleted(
 		return err
 	}
 	return nil
+}
+
+// AwsMonitoringModel configures exporting deployment telemetry to AWS CloudWatch.
+type AwsMonitoringModel struct {
+	Logs    *AwsMonitoringExportModel `tfsdk:"logs"`
+	Metrics *AwsMonitoringExportModel `tfsdk:"metrics"`
+}
+
+// AwsMonitoringExportModel configures a single telemetry export (logs or metrics).
+type AwsMonitoringExportModel struct {
+	Enabled         types.Bool   `tfsdk:"enabled"`
+	CloudwatchGroup types.String `tfsdk:"cloudwatch_group"`
+}
+
+// cloudwatchGroupRegex validates a CloudWatch group name: 1-512 characters of a-z, A-Z, 0-9, '_', '-', '/',
+// '.', '#', and not starting with the reserved prefix "aws/".
+var cloudwatchGroupRegex = regexp.MustCompile(`^(?:` +
+	`[a-zA-Z0-9_\-/.#]{1,3}` +
+	`|[b-zA-Z0-9_\-/.#][a-zA-Z0-9_\-/.#]{3,511}` +
+	`|a[a-vx-zA-Z0-9_\-/.#][a-zA-Z0-9_\-/.#]{2,510}` +
+	`|aw[a-rt-zA-Z0-9_\-/.#][a-zA-Z0-9_\-/.#]{1,509}` +
+	`|aws[a-zA-Z0-9_\-.#][a-zA-Z0-9_\-/.#]{0,508}` +
+	`)$`)
+
+// awsMonitoringToAPI converts the plan model into the API representation.
+func awsMonitoringToAPI(m *AwsMonitoringModel) *deployments.AWSMonitoring {
+	logsEnabled, metricsEnabled := false, false
+	var logsGroup, metricsGroup *string
+	if m != nil && m.Logs != nil {
+		logsEnabled = m.Logs.Enabled.ValueBool()
+		if logsEnabled && !m.Logs.CloudwatchGroup.IsNull() && !m.Logs.CloudwatchGroup.IsUnknown() {
+			logsGroup = m.Logs.CloudwatchGroup.ValueStringPointer()
+		}
+	}
+	if m != nil && m.Metrics != nil {
+		metricsEnabled = m.Metrics.Enabled.ValueBool()
+		if metricsEnabled && !m.Metrics.CloudwatchGroup.IsNull() && !m.Metrics.CloudwatchGroup.IsUnknown() {
+			metricsGroup = m.Metrics.CloudwatchGroup.ValueStringPointer()
+		}
+	}
+	return &deployments.AWSMonitoring{
+		Logs:    &deployments.AWSMonitoringLogs{Enabled: &logsEnabled, CloudwatchGroup: logsGroup},
+		Metrics: &deployments.AWSMonitoringMetrics{Enabled: &metricsEnabled, CloudwatchGroup: metricsGroup},
+	}
+}
+
+// awsMonitoringFromAPI converts the API representation into the state model.
+func awsMonitoringFromAPI(prior *AwsMonitoringModel, m *deployments.AWSMonitoring) *AwsMonitoringModel {
+	var logsEnabled, metricsEnabled bool
+	var logsGroup, metricsGroup *string
+	if m != nil && m.Logs != nil {
+		logsEnabled = m.Logs.Enabled != nil && *m.Logs.Enabled
+		logsGroup = m.Logs.CloudwatchGroup
+	}
+	if m != nil && m.Metrics != nil {
+		metricsEnabled = m.Metrics.Enabled != nil && *m.Metrics.Enabled
+		metricsGroup = m.Metrics.CloudwatchGroup
+	}
+
+	section := func(keep, enabled bool, group *string) *AwsMonitoringExportModel {
+		if !keep && !enabled {
+			return nil
+		}
+		out := &AwsMonitoringExportModel{Enabled: types.BoolValue(enabled), CloudwatchGroup: types.StringNull()}
+		if group != nil && *group != "" {
+			out.CloudwatchGroup = types.StringValue(*group)
+		}
+		return out
+	}
+
+	out := &AwsMonitoringModel{
+		Logs:    section(prior != nil && prior.Logs != nil, logsEnabled, logsGroup),
+		Metrics: section(prior != nil && prior.Metrics != nil, metricsEnabled, metricsGroup),
+	}
+	if prior == nil && out.Logs == nil && out.Metrics == nil {
+		return nil
+	}
+	return out
 }

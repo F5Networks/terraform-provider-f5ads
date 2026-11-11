@@ -591,6 +591,131 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 	})
 }
 
+func awsManagedPublicEndpointDeploymentMonitoring(nameSuffix int, monitoring string) string {
+	return fmt.Sprintf(
+		`
+%s
+
+%s
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-%[3]d"
+  capacity = 10
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
+  aws_cloud_properties = {
+	region = "us-east-1"
+	ipv4_cidr_block = "10.0.0.0/24"
+	identity = {
+	  customer_role_arn = "arn:aws:iam::123456789012:role/F5-ADS-CloudWatch-Role"
+	}
+	frontend = {
+	  managed_public_endpoint = {
+		acl = [
+		  {
+			source_prefixes = [
+			  "0.0.0.0/0",
+			]
+			port_range = "80"
+			protocol = "tcp"
+		  }
+		]
+	  }
+	}
+	%s
+  }
+}
+`, providerConfig, baseNginxConfig(), nameSuffix, monitoring)
+}
+
+// awsMonitoringBlockFmt renders a monitoring block with logs and metrics CloudWatch groups.
+const awsMonitoringBlockFmt = `monitoring = {
+	  logs = {
+		enabled = true
+		cloudwatch_group = %q
+	  }
+	  metrics = {
+		enabled = true
+		cloudwatch_group = %q
+	  }
+	}`
+
+func TestAccDeploymentResourceAWSCloudWatchMonitoring(t *testing.T) {
+	nameSuffix := randomNameSuffix()
+	logsGroup := fmt.Sprintf("/f5ads/acc/%d/logs", nameSuffix)
+	metricsGroup := fmt.Sprintf("/f5ads/acc/%d/metrics", nameSuffix)
+	updatedLogsGroup := fmt.Sprintf("/f5ads/acc/%d/logs-updated", nameSuffix)
+	updatedMetricsGroup := fmt.Sprintf("/f5ads/acc/%d/metrics-updated", nameSuffix)
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Create with logs and metrics export enabled.
+			{
+				Config: awsManagedPublicEndpointDeploymentMonitoring(nameSuffix, fmt.Sprintf(awsMonitoringBlockFmt, logsGroup, metricsGroup)),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "cloud", "aws"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.logs.enabled", "true"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.logs.cloudwatch_group", logsGroup),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.metrics.enabled", "true"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.metrics.cloudwatch_group", metricsGroup),
+				),
+			},
+			{
+				ResourceName:      "f5ads_deployment.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: awsManagedPublicEndpointDeploymentMonitoring(nameSuffix, fmt.Sprintf(awsMonitoringBlockFmt, updatedLogsGroup, updatedMetricsGroup)),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.logs.cloudwatch_group", updatedLogsGroup),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.metrics.cloudwatch_group", updatedMetricsGroup),
+				),
+			},
+			// Logs only; metrics export disabled by omission.
+			{
+				Config: awsManagedPublicEndpointDeploymentMonitoring(nameSuffix, fmt.Sprintf(`monitoring = {
+	  logs = {
+		enabled = true
+		cloudwatch_group = %q
+	  }
+	}`, logsGroup)),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.logs.enabled", "true"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.logs.cloudwatch_group", logsGroup),
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.metrics"),
+				),
+			},
+			// Removing the monitoring block disables telemetry export.
+			{
+				Config: awsManagedPublicEndpointDeploymentMonitoring(nameSuffix, ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccDeploymentResourceAWSCloudWatchMonitoringInvalidGroup(t *testing.T) {
+	nameSuffix := randomNameSuffix()
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      awsManagedPublicEndpointDeploymentMonitoring(nameSuffix, fmt.Sprintf(awsMonitoringBlockFmt, "aws/reserved", "/f5ads/metrics")),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`must\s+not\s+start\s+with\s+the\s+reserved\s+prefix\s+.aws/.`),
+			},
+			{
+				Config:      awsManagedPublicEndpointDeploymentMonitoring(nameSuffix, fmt.Sprintf(awsMonitoringBlockFmt, "/f5ads/logs", "bad group name")),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`must\s+be\s+1-512\s+characters\s+long`),
+			},
+		},
+	})
+}
+
 func TestAccDeploymentResourceGooglePrivateEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
 	gcpProject := os.Getenv("GOOGLE_PROJECT")

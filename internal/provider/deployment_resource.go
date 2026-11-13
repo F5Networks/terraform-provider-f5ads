@@ -12,6 +12,7 @@ import (
 	"github.com/cenkalti/backoff/v5"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -75,19 +76,25 @@ type GoogleFrontendModel struct {
 }
 
 type ManagedPublicEndpointModel struct {
-	ServiceEndpoint types.String                    `tfsdk:"service_endpoint"`
-	Acl             []ManagedPublicEndpointACLModel `tfsdk:"acl"`
+	ServiceEndpoint types.String `tfsdk:"service_endpoint"`
+	Acl             types.List   `tfsdk:"acl"`
 }
 
 type ManagedPublicEndpointACLModel struct {
-	SourcePrefixes []types.String `tfsdk:"source_prefixes"`
-	PortRange      types.String   `tfsdk:"port_range"`
-	Protocol       types.String   `tfsdk:"protocol"`
+	SourcePrefixes types.List   `tfsdk:"source_prefixes"`
+	PortRange      types.String `tfsdk:"port_range"`
+	Protocol       types.String `tfsdk:"protocol"`
 }
 
+var aclRuleType = types.ObjectType{AttrTypes: map[string]attr.Type{
+	"source_prefixes": types.ListType{ElemType: types.StringType},
+	"port_range":      types.StringType,
+	"protocol":        types.StringType,
+}}
+
 type PrivateEndpointModel struct {
-	ServiceAttachment           types.String   `tfsdk:"service_attachment"`
-	ServiceAttachmentAcceptList []types.String `tfsdk:"service_attachment_accept_list"`
+	ServiceAttachment           types.String `tfsdk:"service_attachment"`
+	ServiceAttachmentAcceptList types.List   `tfsdk:"service_attachment_accept_list"`
 }
 
 type AwsCloudPropertiesModel struct {
@@ -419,20 +426,10 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 		var depFrontendPrivateEndpoint *deployments.UpdateGooglePrivateEndpoint
 		if plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint != nil {
 			depFrontendManagedPublicEndpoint = &deployments.CreateManagedPublicEndpoint{}
-			acl := make([]deployments.ManagedPublicEndpointACLRule, 0)
-			if aclPlan := plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint.Acl; len(aclPlan) > 0 {
-				for _, rule := range aclPlan {
-					sourcePrefixes := make([]string, 0, len(rule.SourcePrefixes))
-					for _, prefix := range rule.SourcePrefixes {
-						sourcePrefixes = append(sourcePrefixes, prefix.ValueString())
-					}
-					protocol := deployments.ManagedPublicEndpointACLRuleProtocol(rule.Protocol.ValueString())
-					acl = append(acl, deployments.ManagedPublicEndpointACLRule{
-						SourcePrefixes: sourcePrefixes,
-						PortRange:      rule.PortRange.ValueStringPointer(),
-						Protocol:       &protocol,
-					})
-				}
+			acl, err := aclToAPI(ctx, plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint.Acl)
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to encode deployment ACL", err.Error())
+				return
 			}
 			depFrontendManagedPublicEndpoint.Acl = acl
 			depGoogleCloudProperties.Frontend.ManagedPublicEndpoint = depFrontendManagedPublicEndpoint
@@ -440,12 +437,13 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 		if plan.GoogleCloudProperties.Frontend.PrivateEndpoint != nil {
 			depFrontendPrivateEndpoint = &deployments.UpdateGooglePrivateEndpoint{}
 			acceptListPlan := plan.GoogleCloudProperties.Frontend.PrivateEndpoint.ServiceAttachmentAcceptList
-			if len(acceptListPlan) > 0 {
-				acceptList := make(deployments.GoogleServiceAttachmentAcceptList, 0, len(acceptListPlan))
-				for _, item := range acceptListPlan {
-					acceptList = append(acceptList, item.ValueString())
-				}
-				depFrontendPrivateEndpoint.ServiceAttachmentAcceptList = &acceptList
+			acceptListValues, err := stringListToAPI(ctx, acceptListPlan)
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to encode service attachment accept list", err.Error())
+				return
+			}
+			if len(acceptListValues) > 0 {
+				depFrontendPrivateEndpoint.ServiceAttachmentAcceptList = &acceptListValues
 			}
 			depGoogleCloudProperties.Frontend.PrivateEndpoint = depFrontendPrivateEndpoint
 		}
@@ -470,20 +468,10 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 		var depFrontendManagedPublicEndpoint *deployments.CreateManagedPublicEndpoint
 		if plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint != nil {
 			depFrontendManagedPublicEndpoint = &deployments.CreateManagedPublicEndpoint{}
-			acl := make([]deployments.ManagedPublicEndpointACLRule, 0)
-			if aclPlan := plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.Acl; len(aclPlan) > 0 {
-				for _, rule := range aclPlan {
-					sourcePrefixes := make([]string, 0, len(rule.SourcePrefixes))
-					for _, prefix := range rule.SourcePrefixes {
-						sourcePrefixes = append(sourcePrefixes, prefix.ValueString())
-					}
-					protocol := deployments.ManagedPublicEndpointACLRuleProtocol(rule.Protocol.ValueString())
-					acl = append(acl, deployments.ManagedPublicEndpointACLRule{
-						SourcePrefixes: sourcePrefixes,
-						PortRange:      rule.PortRange.ValueStringPointer(),
-						Protocol:       &protocol,
-					})
-				}
+			acl, err := aclToAPI(ctx, plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.Acl)
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to encode deployment ACL", err.Error())
+				return
 			}
 			depFrontendManagedPublicEndpoint.Acl = acl
 			depAwsCloudProperties.Frontend.ManagedPublicEndpoint = depFrontendManagedPublicEndpoint
@@ -666,39 +654,23 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 			var managedPublicEndpoint ManagedPublicEndpointModel
 			managedPublicEndpoint.ServiceEndpoint = types.StringValue(
 				*deploymentResponse.CloudProperties.Google.Frontend.ManagedPublicEndpoint.ServiceEndpoint)
-			acl := make([]ManagedPublicEndpointACLModel, 0)
-			if aclResp := deploymentResponse.CloudProperties.Google.Frontend.ManagedPublicEndpoint.Acl; len(aclResp) > 0 {
-				for _, rule := range aclResp {
-					var aclRule ManagedPublicEndpointACLModel
-					sourcePrefixes := make([]types.String, 0, len(rule.SourcePrefixes))
-					for _, prefix := range rule.SourcePrefixes {
-						sourcePrefixes = append(sourcePrefixes, types.StringValue(prefix))
-					}
-					aclRule.SourcePrefixes = sourcePrefixes
-					if rule.PortRange != nil {
-						aclRule.PortRange = types.StringValue(*rule.PortRange)
-					}
-					if rule.Protocol != nil {
-						aclRule.Protocol = types.StringValue(string(*rule.Protocol))
-					}
-					acl = append(acl, aclRule)
-				}
+			acl, err := aclFromAPI(ctx, deploymentResponse.CloudProperties.Google.Frontend.ManagedPublicEndpoint.Acl)
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to decode deployment ACL", err.Error())
+				return
 			}
 			managedPublicEndpoint.Acl = acl
 			frontend.ManagedPublicEndpoint = &managedPublicEndpoint
 		}
 		if deploymentResponse.CloudProperties.Google.Frontend.PrivateEndpoint != nil {
 			var privateEndpoint PrivateEndpointModel
+			privateEndpoint.ServiceAttachmentAcceptList = types.ListNull(types.StringType)
 			if deploymentResponse.CloudProperties.Google.Frontend.PrivateEndpoint.ServiceAttachment != nil {
 				privateEndpoint.ServiceAttachment = types.StringValue(
 					*deploymentResponse.CloudProperties.Google.Frontend.PrivateEndpoint.ServiceAttachment)
 			}
 			if acceptListResp := deploymentResponse.CloudProperties.Google.Frontend.PrivateEndpoint.ServiceAttachmentAcceptList; acceptListResp != nil && len(*acceptListResp) > 0 {
-				acceptList := make([]types.String, 0, len(*acceptListResp))
-				for _, item := range *acceptListResp {
-					acceptList = append(acceptList, types.StringValue(item))
-				}
-				privateEndpoint.ServiceAttachmentAcceptList = acceptList
+				privateEndpoint.ServiceAttachmentAcceptList = stringListFromAPI(*acceptListResp)
 			}
 			frontend.PrivateEndpoint = &privateEndpoint
 		}
@@ -725,23 +697,10 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 			var managedPublicEndpoint ManagedPublicEndpointModel
 			managedPublicEndpoint.ServiceEndpoint = types.StringValue(
 				*deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.ServiceEndpoint)
-			acl := make([]ManagedPublicEndpointACLModel, 0)
-			if aclResp := deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.Acl; len(aclResp) > 0 {
-				for _, rule := range aclResp {
-					var aclRule ManagedPublicEndpointACLModel
-					sourcePrefixes := make([]types.String, 0, len(rule.SourcePrefixes))
-					for _, prefix := range rule.SourcePrefixes {
-						sourcePrefixes = append(sourcePrefixes, types.StringValue(prefix))
-					}
-					aclRule.SourcePrefixes = sourcePrefixes
-					if rule.PortRange != nil {
-						aclRule.PortRange = types.StringValue(*rule.PortRange)
-					}
-					if rule.Protocol != nil {
-						aclRule.Protocol = types.StringValue(string(*rule.Protocol))
-					}
-					acl = append(acl, aclRule)
-				}
+			acl, err := aclFromAPI(ctx, deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.Acl)
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to decode deployment ACL", err.Error())
+				return
 			}
 			managedPublicEndpoint.Acl = acl
 			frontend.ManagedPublicEndpoint = &managedPublicEndpoint
@@ -824,21 +783,10 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 		var depFrontendManagedPublicEndpoint *deployments.UpdateManagedPublicEndpoint
 		if plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint != nil {
 			depFrontendManagedPublicEndpoint = &deployments.UpdateManagedPublicEndpoint{}
-			acl := make([]deployments.ManagedPublicEndpointACLRule, 0)
-			if aclPlan := plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint.Acl; len(aclPlan) > 0 {
-				acl = make([]deployments.ManagedPublicEndpointACLRule, 0, len(aclPlan))
-				for _, rule := range aclPlan {
-					sourcePrefixes := make([]string, 0, len(rule.SourcePrefixes))
-					for _, prefix := range rule.SourcePrefixes {
-						sourcePrefixes = append(sourcePrefixes, prefix.ValueString())
-					}
-					protocol := deployments.ManagedPublicEndpointACLRuleProtocol(rule.Protocol.ValueString())
-					acl = append(acl, deployments.ManagedPublicEndpointACLRule{
-						SourcePrefixes: sourcePrefixes,
-						PortRange:      rule.PortRange.ValueStringPointer(),
-						Protocol:       &protocol,
-					})
-				}
+			acl, err := aclToAPI(ctx, plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint.Acl)
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to encode deployment ACL", err.Error())
+				return
 			}
 			depFrontendManagedPublicEndpoint.Acl = &acl
 		}
@@ -846,11 +794,12 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 		if plan.GoogleCloudProperties.Frontend.PrivateEndpoint != nil {
 			depFrontendPrivateEndpoint = &deployments.UpdateGooglePrivateEndpoint{}
 			acceptListPlan := plan.GoogleCloudProperties.Frontend.PrivateEndpoint.ServiceAttachmentAcceptList
-			acceptList := make(deployments.GoogleServiceAttachmentAcceptList, 0, len(acceptListPlan))
-			for _, item := range acceptListPlan {
-				acceptList = append(acceptList, item.ValueString())
+			acceptListValues, err := stringListToAPI(ctx, acceptListPlan)
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to encode service attachment accept list", err.Error())
+				return
 			}
-			depFrontendPrivateEndpoint.ServiceAttachmentAcceptList = &acceptList
+			depFrontendPrivateEndpoint.ServiceAttachmentAcceptList = &acceptListValues
 		}
 
 		emptyStr := ""
@@ -886,21 +835,10 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 		var depFrontendManagedPublicEndpoint *deployments.UpdateManagedPublicEndpoint
 		if plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint != nil {
 			depFrontendManagedPublicEndpoint = &deployments.UpdateManagedPublicEndpoint{}
-			acl := make([]deployments.ManagedPublicEndpointACLRule, 0)
-			if aclPlan := plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.Acl; len(aclPlan) > 0 {
-				acl = make([]deployments.ManagedPublicEndpointACLRule, 0, len(aclPlan))
-				for _, rule := range aclPlan {
-					sourcePrefixes := make([]string, 0, len(rule.SourcePrefixes))
-					for _, prefix := range rule.SourcePrefixes {
-						sourcePrefixes = append(sourcePrefixes, prefix.ValueString())
-					}
-					protocol := deployments.ManagedPublicEndpointACLRuleProtocol(rule.Protocol.ValueString())
-					acl = append(acl, deployments.ManagedPublicEndpointACLRule{
-						SourcePrefixes: sourcePrefixes,
-						PortRange:      rule.PortRange.ValueStringPointer(),
-						Protocol:       &protocol,
-					})
-				}
+			acl, err := aclToAPI(ctx, plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.Acl)
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to encode deployment ACL", err.Error())
+				return
 			}
 			depFrontendManagedPublicEndpoint.Acl = &acl
 		}
@@ -1066,6 +1004,44 @@ func (r *deploymentResource) Configure(_ context.Context, req resource.Configure
 	}
 
 	r.client = clients.deployments
+}
+
+func aclToAPI(ctx context.Context, value types.List) ([]deployments.ManagedPublicEndpointACLRule, error) {
+	var rules []ManagedPublicEndpointACLModel
+	if err := collectionElementsAs(ctx, value, &rules); err != nil {
+		return nil, err
+	}
+	acl := make([]deployments.ManagedPublicEndpointACLRule, 0, len(rules))
+	for _, rule := range rules {
+		prefixes, err := stringListToAPI(ctx, rule.SourcePrefixes)
+		if err != nil {
+			return nil, fmt.Errorf("source_prefixes: %w", err)
+		}
+		protocol := deployments.ManagedPublicEndpointACLRuleProtocol(rule.Protocol.ValueString())
+		acl = append(acl, deployments.ManagedPublicEndpointACLRule{
+			SourcePrefixes: prefixes,
+			PortRange:      rule.PortRange.ValueStringPointer(),
+			Protocol:       &protocol,
+		})
+	}
+	return acl, nil
+}
+
+func aclFromAPI(ctx context.Context, rules []deployments.ManagedPublicEndpointACLRule) (types.List, error) {
+	acl := make([]ManagedPublicEndpointACLModel, 0, len(rules))
+	for _, rule := range rules {
+		model := ManagedPublicEndpointACLModel{
+			SourcePrefixes: stringListFromAPI(rule.SourcePrefixes),
+			PortRange:      types.StringPointerValue(rule.PortRange),
+			Protocol:       types.StringNull(),
+		}
+		if rule.Protocol != nil {
+			model.Protocol = types.StringValue(string(*rule.Protocol))
+		}
+		acl = append(acl, model)
+	}
+	value, diags := types.ListValueFrom(ctx, aclRuleType, acl)
+	return value, diagnosticsError(diags)
 }
 
 func (r *deploymentResource) ValidateConfig(

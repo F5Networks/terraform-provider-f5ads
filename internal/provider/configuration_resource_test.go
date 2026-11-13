@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -8,8 +9,11 @@ import (
 	"testing"
 
 	configs "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/configs/2026-07-31"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
 const nginxConfContents = `user nginx;
@@ -98,20 +102,24 @@ func configResourceWithName(nameSuffix int, description string, conf string) str
 	return fmt.Sprintf(`
 %s
 
-resource "f5ads_configuration" "test" {
-  name        = "nginxacc-%d"
-  description = "%s"
-  configs = [
+resource "terraform_data" "configs" {
+  input = [
     {
       name = "/etc/nginx"
       files = [
         {
           name     = "nginx.conf"
-          contents = base64encode(%q)
+          contents = base64encode(%[4]q)
         }
       ]
     }
   ]
+}
+
+resource "f5ads_configuration" "test" {
+  name        = "nginxacc-%[2]d"
+  description = "%[3]s"
+  configs     = terraform_data.configs.output
 }
 `, providerConfig, nameSuffix, description, conf)
 }
@@ -257,6 +265,11 @@ func TestAccConfigResourceWithName(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: configResourceWithName(nameSuffix, "initial description", nginxConfContents),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectUnknownValue("f5ads_configuration.test", tfjsonpath.New("configs")),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("f5ads_configuration.test", "name", name),
 					resource.TestCheckResourceAttr("f5ads_configuration.test", "description", "initial description"),
@@ -425,15 +438,22 @@ func configResourceWithPayloads(nameSuffix int, certPath, keyPath string) string
 	return fmt.Sprintf(`
 %s
 
+resource "terraform_data" "payload_paths" {
+  input = {
+    certificate = ["%[4]s"]
+    key         = ["%[5]s"]
+  }
+}
+
 resource "f5ads_configuration" "test" {
-  name = "nginxacc-%d"
+  name = "nginxacc-%[2]d"
   configs = [
     {
       name = "/etc/nginx"
       files = [
         {
           name     = "nginx.conf"
-          contents = base64encode(%q)
+          contents = base64encode(%[3]q)
         }
       ]
     }
@@ -442,12 +462,12 @@ resource "f5ads_configuration" "test" {
     {
       type      = "managed_certificate"
       object_id = f5ads_certificate.test.id
-      paths     = ["%s"]
+      paths     = terraform_data.payload_paths.output.certificate
     },
     {
       type      = "managed_key"
       object_id = f5ads_certificate.test.id
-      paths     = ["%s"]
+      paths     = terraform_data.payload_paths.output.key
     },
   ]
 }
@@ -521,6 +541,12 @@ func TestAccConfigResourcePayloads(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: configResourceWithPayloads(nameSuffix, "/etc/nginx/tls/server.crt", "/etc/nginx/tls/server.key"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectUnknownValue(resourceName, tfjsonpath.New("payloads").AtSliceIndex(0).AtMapKey("paths")),
+						plancheck.ExpectUnknownValue(resourceName, tfjsonpath.New("payloads").AtSliceIndex(1).AtMapKey("paths")),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet(resourceName, "id"),
 					resource.TestCheckResourceAttrSet(resourceName, "latest_version_id"),
@@ -604,38 +630,56 @@ func TestAccConfigResourcePayloadsValidation(t *testing.T) {
 const indexHTMLContents = `<html><body>Hello from aux!</body></html>
 `
 
+func testListValue(t *testing.T, elementType attr.Type, values interface{}) types.List {
+	t.Helper()
+	value, diags := types.ListValueFrom(context.Background(), elementType, values)
+	if diags.HasError() {
+		t.Fatalf("ListValueFrom: %v", diags)
+	}
+	return value
+}
+
+func testSetValue(t *testing.T, elementType attr.Type, values interface{}) types.Set {
+	t.Helper()
+	value, diags := types.SetValueFrom(context.Background(), elementType, values)
+	if diags.HasError() {
+		t.Fatalf("SetValueFrom: %v", diags)
+	}
+	return value
+}
+
 // TestConfigReplaceRequestAlwaysSendsAux verifies that the PUT body always
 // contains an explicit aux field, and that it is an empty array when no aux
 // groups are configured. The API keeps previously known aux content when the
 // field is omitted.
 func TestConfigReplaceRequestAlwaysSendsAux(t *testing.T) {
-	nginxConf := []ConfigGroupModel{{
+	nginxConf := testSetValue(t, configGroupType, []ConfigGroupModel{{
 		Name: types.StringValue("/etc/nginx"),
-		Files: []ConfigFileModel{{
+		Files: testSetValue(t, configFileType, []ConfigFileModel{{
 			Name:     types.StringValue("nginx.conf"),
 			Contents: types.StringValue(base64.StdEncoding.EncodeToString([]byte(nginxConfContents))),
-		}},
-	}}
+		}}),
+	}})
 
 	tests := []struct {
 		name    string
-		aux     []ConfigGroupModel
+		aux     types.List
 		wantLen int
 	}{
-		{name: "nil aux (aux blocks removed)", aux: nil, wantLen: 0},
-		{name: "empty aux", aux: []ConfigGroupModel{}, wantLen: 0},
+		{name: "null aux (aux blocks removed)", aux: types.ListNull(auxGroupType), wantLen: 0},
+		{name: "empty aux", aux: types.ListValueMust(auxGroupType, nil), wantLen: 0},
 		{
 			name: "one aux group",
-			aux: []ConfigGroupModel{{
+			aux: testListValue(t, auxGroupType, []AuxGroupModel{{
 				Name: types.StringValue("/srv/www"),
-				Files: []ConfigFileModel{
+				Files: testListValue(t, configFileType, []ConfigFileModel{
 					{
 						Name:     types.StringValue("index.html"),
 						Contents: types.StringValue(base64.StdEncoding.EncodeToString([]byte(indexHTMLContents))),
 					},
 					{Name: types.StringValue("empty.txt"), Contents: types.StringNull()},
-				},
-			}},
+				}),
+			}}),
 			wantLen: 1,
 		},
 	}
@@ -643,7 +687,7 @@ func TestConfigReplaceRequestAlwaysSendsAux(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			model := &configResourceModel{Configs: nginxConf, Aux: test.aux}
-			cfg, err := configRequestFromModel(model)
+			cfg, err := configRequestFromModel(context.Background(), model)
 			if err != nil {
 				t.Fatalf("configRequestFromModel() error = %v", err)
 			}
@@ -680,12 +724,13 @@ func TestConfigReplaceRequestAlwaysSendsAux(t *testing.T) {
 
 func TestConfigRequestInvalidAuxBase64(t *testing.T) {
 	model := &configResourceModel{
-		Aux: []ConfigGroupModel{{
+		Configs: types.SetNull(configGroupType),
+		Aux: testListValue(t, auxGroupType, []AuxGroupModel{{
 			Name:  types.StringValue("/srv/www"),
-			Files: []ConfigFileModel{{Name: types.StringValue("index.html"), Contents: types.StringValue("not base64!")}},
-		}},
+			Files: testListValue(t, configFileType, []ConfigFileModel{{Name: types.StringValue("index.html"), Contents: types.StringValue("not base64!")}}),
+		}}),
 	}
-	if _, err := configRequestFromModel(model); err == nil {
+	if _, err := configRequestFromModel(context.Background(), model); err == nil {
 		t.Fatal("configRequestFromModel() expected error for invalid base64 aux contents")
 	}
 }
@@ -696,30 +741,32 @@ func configResourceWithAux(nameSuffix int) string {
 	return fmt.Sprintf(`
 %s
 
+resource "terraform_data" "config_files" {
+  input = [{
+    name     = "nginx.conf"
+    contents = base64encode(%[3]q)
+  }]
+}
+
+resource "terraform_data" "aux" {
+  input = [{
+    name = "/srv/www"
+    files = [{
+      name     = "index.html"
+      contents = base64encode(%[4]q)
+    }]
+  }]
+}
+
 resource "f5ads_configuration" "test" {
-  name = "nginxacc-%d"
+  name = "nginxacc-%[2]d"
   configs = [
     {
       name = "/etc/nginx"
-      files = [
-        {
-          name     = "nginx.conf"
-          contents = base64encode(%q)
-        }
-      ]
+      files = terraform_data.config_files.output
     }
   ]
-  aux = [
-    {
-      name = "/srv/www"
-      files = [
-        {
-          name     = "index.html"
-          contents = base64encode(%q)
-        }
-      ]
-    }
-  ]
+  aux = terraform_data.aux.output
 }
 `, providerConfig, nameSuffix, nginxConfContents, indexHTMLContents)
 }
@@ -754,6 +801,12 @@ func TestAccConfigResourceAux(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: configResourceWithAux(nameSuffix),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectUnknownValue("f5ads_configuration.test", tfjsonpath.New("configs").AtSliceIndex(0).AtMapKey("files")),
+						plancheck.ExpectUnknownValue("f5ads_configuration.test", tfjsonpath.New("aux")),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("f5ads_configuration.test", "aux.#", "1"),
 					resource.TestCheckResourceAttr("f5ads_configuration.test", "aux.0.name", "/srv/www"),

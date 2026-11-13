@@ -279,37 +279,23 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 				managedPublicEndpoint.ServiceEndpoint = types.StringValue(
 					*deploymentResponse.CloudProperties.Google.Frontend.ManagedPublicEndpoint.ServiceEndpoint)
 			}
-			acl := make([]ManagedPublicEndpointACLModel, 0)
-			for _, rule := range deploymentResponse.CloudProperties.Google.Frontend.ManagedPublicEndpoint.Acl {
-				var aclRule ManagedPublicEndpointACLModel
-				sourcePrefixes := make([]types.String, 0, len(rule.SourcePrefixes))
-				for _, prefix := range rule.SourcePrefixes {
-					sourcePrefixes = append(sourcePrefixes, types.StringValue(prefix))
-				}
-				aclRule.SourcePrefixes = sourcePrefixes
-				if rule.PortRange != nil {
-					aclRule.PortRange = types.StringValue(*rule.PortRange)
-				}
-				if rule.Protocol != nil {
-					aclRule.Protocol = types.StringValue(string(*rule.Protocol))
-				}
-				acl = append(acl, aclRule)
+			acl, err := aclFromAPI(ctx, deploymentResponse.CloudProperties.Google.Frontend.ManagedPublicEndpoint.Acl)
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to decode deployment ACL", err.Error())
+				return
 			}
 			managedPublicEndpoint.Acl = acl
 			frontend.ManagedPublicEndpoint = &managedPublicEndpoint
 		}
 		if deploymentResponse.CloudProperties.Google.Frontend.PrivateEndpoint != nil {
 			var privateEndpoint PrivateEndpointModel
+			privateEndpoint.ServiceAttachmentAcceptList = types.ListNull(types.StringType)
 			if deploymentResponse.CloudProperties.Google.Frontend.PrivateEndpoint.ServiceAttachment != nil {
 				privateEndpoint.ServiceAttachment = types.StringValue(
 					*deploymentResponse.CloudProperties.Google.Frontend.PrivateEndpoint.ServiceAttachment)
 			}
 			if acceptListResp := deploymentResponse.CloudProperties.Google.Frontend.PrivateEndpoint.ServiceAttachmentAcceptList; acceptListResp != nil {
-				acceptList := make([]types.String, 0, len(*acceptListResp))
-				for _, item := range *acceptListResp {
-					acceptList = append(acceptList, types.StringValue(item))
-				}
-				privateEndpoint.ServiceAttachmentAcceptList = acceptList
+				privateEndpoint.ServiceAttachmentAcceptList = stringListFromAPI(*acceptListResp)
 			}
 			frontend.PrivateEndpoint = &privateEndpoint
 		}

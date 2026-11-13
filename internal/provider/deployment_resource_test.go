@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
 func googleCloudManagedPublicEndpointDeployment(nameSuffix int) string {
@@ -17,6 +19,14 @@ func googleCloudManagedPublicEndpointDeployment(nameSuffix int) string {
 %s
 
 %s
+
+resource "terraform_data" "acl" {
+  input = [{
+    source_prefixes = ["0.0.0.0/0"]
+    port_range      = "80"
+    protocol        = "tcp"
+  }]
+}
 
 resource "f5ads_deployment" "test" {
   name = "nginxacc-%[4]d"
@@ -29,15 +39,7 @@ resource "f5ads_deployment" "test" {
 	network_attachment = google_compute_network_attachment.default.id
 	frontend = {
 	  managed_public_endpoint = {
-		acl = [
-		  {
-			source_prefixes = [
-			  "0.0.0.0/0",
-			]
-			port_range = "80"
-			protocol = "tcp"
-		  }
-		]
+		acl = terraform_data.acl.output
 	  }
 	}
   }
@@ -80,6 +82,10 @@ func googleCloudPrivateEndpointDeploymentUpdateAcceptList(nameSuffix int, gcpPro
 
 %s
 
+resource "terraform_data" "accept_list" {
+  input = ["%[5]s"]
+}
+
 resource "f5ads_deployment" "test" {
   name = "nginxacc-%[4]d"
   description = "Acceptance test for nginxacc-%[4]d"
@@ -91,9 +97,7 @@ resource "f5ads_deployment" "test" {
 	network_attachment = google_compute_network_attachment.default.id
 	frontend = {
 	  private_endpoint = {
-		service_attachment_accept_list = [
-		  "%s",
-		]
+		service_attachment_accept_list = terraform_data.accept_list.output
 	  }
 	}
   }
@@ -234,6 +238,12 @@ func TestAccDeploymentResourceGoogleManagedPublicEndpoint(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: googleCloudManagedPublicEndpointDeployment(nameSuffix),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectUnknownValue("f5ads_deployment.test", tfjsonpath.New("google_cloud_properties").
+							AtMapKey("frontend").AtMapKey("managed_public_endpoint").AtMapKey("acl")),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "name", fmt.Sprintf("nginxacc-%d", nameSuffix)),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "description", fmt.Sprintf("Acceptance test for nginxacc-%d", nameSuffix)),
@@ -303,6 +313,15 @@ func awsManagedPublicEndpointDeployment(nameSuffix int) string {
 
 %s
 
+variable "allowed_source_prefixes" {
+  type    = list(string)
+  default = ["0.0.0.0/0"]
+}
+
+resource "terraform_data" "source_prefixes" {
+  input = var.allowed_source_prefixes
+}
+
 resource "f5ads_deployment" "test" {
   name = "nginxacc-%[3]d"
   capacity = 10
@@ -315,9 +334,7 @@ resource "f5ads_deployment" "test" {
 	  managed_public_endpoint = {
 		acl = [
 		  {
-			source_prefixes = [
-			  "0.0.0.0/0",
-			]
+			source_prefixes = terraform_data.source_prefixes.output
 			port_range = "80"
 			protocol = "tcp"
 		  }
@@ -508,6 +525,13 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: awsManagedPublicEndpointDeployment(nameSuffix),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectUnknownValue("f5ads_deployment.test", tfjsonpath.New("aws_cloud_properties").
+							AtMapKey("frontend").AtMapKey("managed_public_endpoint").AtMapKey("acl").
+							AtSliceIndex(0).AtMapKey("source_prefixes")),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_id", "f5ads_configuration.test", "id"),
 					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "nginx_config_version_id", "f5ads_configuration.test", "latest_version_id"),
@@ -619,6 +643,12 @@ func TestAccDeploymentResourceGooglePrivateEndpoint(t *testing.T) {
 			},
 			{
 				Config: googleCloudPrivateEndpointDeploymentUpdateAcceptList(nameSuffix, gcpProject),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectUnknownValue("f5ads_deployment.test", tfjsonpath.New("google_cloud_properties").
+							AtMapKey("frontend").AtMapKey("private_endpoint").AtMapKey("service_attachment_accept_list")),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "google_cloud_properties.frontend.private_endpoint.service_attachment_accept_list.#", "1"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "google_cloud_properties.frontend.private_endpoint.service_attachment_accept_list.0", gcpProject),

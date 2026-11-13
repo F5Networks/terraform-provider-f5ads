@@ -15,8 +15,10 @@ import (
 	"time"
 
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	externalRef0 "github.com/F5Networks/terraform-provider-f5ads/internal/provider/clients/naas"
+	"github.com/F5Networks/terraform-provider-f5ads/internal/provider/objects"
 )
 
 // Defines values for DeploymentCloudName.
@@ -42,25 +44,25 @@ func (e DeploymentCloudName) Valid() bool {
 
 // Defines values for DeploymentStateState.
 const (
-	Deleting  DeploymentStateState = "deleting"
-	Failed    DeploymentStateState = "failed"
-	Pending   DeploymentStateState = "pending"
-	Ready     DeploymentStateState = "ready"
-	Suspended DeploymentStateState = "suspended"
+	DeploymentStateStateDeleting  DeploymentStateState = "deleting"
+	DeploymentStateStateFailed    DeploymentStateState = "failed"
+	DeploymentStateStatePending   DeploymentStateState = "pending"
+	DeploymentStateStateReady     DeploymentStateState = "ready"
+	DeploymentStateStateSuspended DeploymentStateState = "suspended"
 )
 
 // Valid indicates whether the value is a known member of the DeploymentStateState enum.
 func (e DeploymentStateState) Valid() bool {
 	switch e {
-	case Deleting:
+	case DeploymentStateStateDeleting:
 		return true
-	case Failed:
+	case DeploymentStateStateFailed:
 		return true
-	case Pending:
+	case DeploymentStateStatePending:
 		return true
-	case Ready:
+	case DeploymentStateStateReady:
 		return true
-	case Suspended:
+	case DeploymentStateStateSuspended:
 		return true
 	default:
 		return false
@@ -79,6 +81,30 @@ func (e ManagedPublicEndpointACLRuleProtocol) Valid() bool {
 	case Tcp:
 		return true
 	case Udp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NetworkConnectionStatusState.
+const (
+	NetworkConnectionStatusStateAccepted NetworkConnectionStatusState = "accepted"
+	NetworkConnectionStatusStatePending  NetworkConnectionStatusState = "pending"
+	NetworkConnectionStatusStateRejected NetworkConnectionStatusState = "rejected"
+	NetworkConnectionStatusStateRemoved  NetworkConnectionStatusState = "removed"
+)
+
+// Valid indicates whether the value is a known member of the NetworkConnectionStatusState enum.
+func (e NetworkConnectionStatusState) Valid() bool {
+	switch e {
+	case NetworkConnectionStatusStateAccepted:
+		return true
+	case NetworkConnectionStatusStatePending:
+		return true
+	case NetworkConnectionStatusStateRejected:
+		return true
+	case NetworkConnectionStatusStateRemoved:
 		return true
 	default:
 		return false
@@ -113,6 +139,9 @@ type AWSDeploymentProperties struct {
 
 	// Region AWS region
 	Region AWSRegion `json:"region"`
+
+	// TransitGatewayVpcAttachment AWS Transit Gateway VPC attachment configuration. resource_share_arn and transit_gateway_id must both be set, or both be empty strings. Both empty means no Transit Gateway attachment: on create, none is configured; on update, the existing attachment is removed.
+	TransitGatewayVpcAttachment *AWSTransitGatewayVpcAttachment `json:"transit_gateway_vpc_attachment,omitempty"`
 
 	// VpcId AWS VPC ID.
 	VpcId AWSVpcID `json:"vpc_id"`
@@ -190,8 +219,29 @@ type AWSPrivateLinkServiceEndpointName = string
 // AWSRegion AWS region
 type AWSRegion = string
 
+// AWSResourceShareARN Amazon Resource Name (ARN) for an AWS RAM Resource Share, or empty string when no Transit Gateway attachment is configured.
+type AWSResourceShareARN = string
+
 // AWSRoleARN Amazon Resource Name (ARN) for an IAM role
 type AWSRoleARN = string
+
+// AWSTgwAttachmentID AWS Transit Gateway VPC attachment ID.
+type AWSTgwAttachmentID = string
+
+// AWSTransitGatewayID AWS Transit Gateway ID, or empty string when no Transit Gateway attachment is configured.
+type AWSTransitGatewayID = string
+
+// AWSTransitGatewayVpcAttachment AWS Transit Gateway VPC attachment configuration. resource_share_arn and transit_gateway_id must both be set, or both be empty strings. Both empty means no Transit Gateway attachment: on create, none is configured; on update, the existing attachment is removed.
+type AWSTransitGatewayVpcAttachment struct {
+	// ResourceShareArn Amazon Resource Name (ARN) for an AWS RAM Resource Share, or empty string when no Transit Gateway attachment is configured.
+	ResourceShareArn AWSResourceShareARN `json:"resource_share_arn"`
+
+	// TransitGatewayId AWS Transit Gateway ID, or empty string when no Transit Gateway attachment is configured.
+	TransitGatewayId AWSTransitGatewayID `json:"transit_gateway_id"`
+
+	// VpcAttachmentId AWS Transit Gateway VPC attachment ID.
+	VpcAttachmentId *AWSTgwAttachmentID `json:"vpc_attachment_id,omitempty"`
+}
 
 // AWSVpcEndpointID AWS VPC Endpoint ID.
 type AWSVpcEndpointID = string
@@ -207,14 +257,32 @@ type AWSVpcPeeringConnections = []AWSVpcPeeringConnectionID
 
 // AzureDeploymentProperties Azure deployment properties.
 type AzureDeploymentProperties struct {
+	// Frontend Azure frontend info returned in a deployment response.
+	Frontend AzureFrontendInfo `json:"frontend"`
+
 	// Ipv4CidrBlock IPv4 CIDR block for the azure deployment VNet, e.g. "172.25.0.0/25". Must be /8 - /25 in size and cannot be within any of these ranges: 255.255.255.255/32, 127.0.0.0/8, 169.254.0.0/16, 224.0.0.0/4, 168.63.129.16/32
 	Ipv4CidrBlock AzureIPv4CIDRBlock `json:"ipv4_cidr_block"`
 
 	// Ipv6CidrBlock IPv6 CIDR block for the azure deployment VNet, e.g. "fd54:60a3:e830::/48". Either provided by the consumer or, if omitted, the deployment-svc generates a random ULA /48. Must be between /7 and /63 in prefix length.
 	Ipv6CidrBlock AzureIPv6CIDRBlock `json:"ipv6_cidr_block"`
 
+	// PeerVnetIds Azure VNet resource IDs to peer with. IDs are case-insensitive and must be unique, and are returned as submitted. In an update, omission preserves existing peers and an empty array removes them.
+	PeerVnetIds AzurePeerVNetIDs `json:"peer_vnet_ids"`
+
+	// PrivateDnsZoneIds Azure Private DNS Zone resource IDs to link. IDs are case-insensitive and must be unique, and are returned as submitted. Zone names must also be unique, and zones that belong to NGINXaaS or Microsoft are rejected. In an update, omission preserves existing links and an empty array removes them.
+	PrivateDnsZoneIds AzurePrivateDNSZoneIDs `json:"private_dns_zone_ids"`
+
 	// Region Azure region. Must match the programmatic name from https://learn.microsoft.com/en-us/azure/reliability/regions-list.
 	Region AzureRegion `json:"region"`
+}
+
+// AzureFrontendInfo Azure frontend info returned in a deployment response.
+type AzureFrontendInfo struct {
+	// ManagedPublicEndpoint Managed public endpoint info returned in a deployment response.
+	ManagedPublicEndpoint *ManagedPublicEndpoint `json:"managed_public_endpoint,omitempty"`
+
+	// PrivateEndpoint Azure private endpoint info returned in a deployment response or used in requests.
+	PrivateEndpoint *AzurePrivateEndpoint `json:"private_endpoint,omitempty"`
 }
 
 // AzureIPv4CIDRBlock IPv4 CIDR block for the azure deployment VNet, e.g. "172.25.0.0/25". Must be /8 - /25 in size and cannot be within any of these ranges: 255.255.255.255/32, 127.0.0.0/8, 169.254.0.0/16, 224.0.0.0/4, 168.63.129.16/32
@@ -223,8 +291,35 @@ type AzureIPv4CIDRBlock = string
 // AzureIPv6CIDRBlock IPv6 CIDR block for the azure deployment VNet, e.g. "fd54:60a3:e830::/48". Either provided by the consumer or, if omitted, the deployment-svc generates a random ULA /48. Must be between /7 and /63 in prefix length.
 type AzureIPv6CIDRBlock = string
 
+// AzurePeerVNetIDs Azure VNet resource IDs to peer with. IDs are case-insensitive and must be unique, and are returned as submitted. In an update, omission preserves existing peers and an empty array removes them.
+type AzurePeerVNetIDs = []AzureVNetResourceID
+
+// AzurePrivateConnectionResourceID The alias of the Azure Private Link Service.
+type AzurePrivateConnectionResourceID = string
+
+// AzurePrivateDNSZoneIDs Azure Private DNS Zone resource IDs to link. IDs are case-insensitive and must be unique, and are returned as submitted. Zone names must also be unique, and zones that belong to NGINXaaS or Microsoft are rejected. In an update, omission preserves existing links and an empty array removes them.
+type AzurePrivateDNSZoneIDs = []AzurePrivateDNSZoneResourceID
+
+// AzurePrivateDNSZoneResourceID Resource-group-scoped Azure Resource ID of a Private DNS Zone.
+type AzurePrivateDNSZoneResourceID = string
+
+// AzurePrivateEndpoint Azure private endpoint info returned in a deployment response or used in requests.
+type AzurePrivateEndpoint struct {
+	// AllowedSubscriptionIds List of Azure Subscription IDs that are allowed to connect to the Private Link Service. An empty list indicates no connections should be allowed.
+	AllowedSubscriptionIds *[]AzureSubscriptionID `json:"allowed_subscription_ids,omitempty"`
+
+	// PrivateConnectionResourceId The alias of the Azure Private Link Service.
+	PrivateConnectionResourceId *AzurePrivateConnectionResourceID `json:"private_connection_resource_id,omitempty"`
+}
+
 // AzureRegion Azure region. Must match the programmatic name from https://learn.microsoft.com/en-us/azure/reliability/regions-list.
 type AzureRegion = string
+
+// AzureSubscriptionID Azure Subscription ID (UUID).
+type AzureSubscriptionID = openapi_types.UUID
+
+// AzureVNetResourceID Resource-group-scoped Azure Resource ID of a virtual network.
+type AzureVNetResourceID = string
 
 // CreateAWSDeploymentProperties AWS deployment properties used in a create request.
 type CreateAWSDeploymentProperties struct {
@@ -240,6 +335,9 @@ type CreateAWSDeploymentProperties struct {
 
 	// Region AWS region
 	Region AWSRegion `json:"region"`
+
+	// TransitGatewayVpcAttachment AWS Transit Gateway VPC attachment configuration. resource_share_arn and transit_gateway_id must both be set, or both be empty strings. Both empty means no Transit Gateway attachment: on create, none is configured; on update, the existing attachment is removed.
+	TransitGatewayVpcAttachment *AWSTransitGatewayVpcAttachment `json:"transit_gateway_vpc_attachment,omitempty"`
 }
 
 // CreateAWSFrontendInfo AWS frontend info used in a create request.
@@ -259,14 +357,32 @@ type CreateAWSIdentity struct {
 
 // CreateAzureDeploymentProperties Azure deployment properties used in a create request.
 type CreateAzureDeploymentProperties struct {
+	// Frontend Azure frontend info used in a create request.
+	Frontend CreateAzureFrontendInfo `json:"frontend"`
+
 	// Ipv4CidrBlock IPv4 CIDR block for the azure deployment VNet, e.g. "172.25.0.0/25". Must be /8 - /25 in size and cannot be within any of these ranges: 255.255.255.255/32, 127.0.0.0/8, 169.254.0.0/16, 224.0.0.0/4, 168.63.129.16/32
 	Ipv4CidrBlock AzureIPv4CIDRBlock `json:"ipv4_cidr_block"`
 
 	// Ipv6CidrBlock IPv6 CIDR block for the azure deployment VNet, e.g. "fd54:60a3:e830::/48". Either provided by the consumer or, if omitted, the deployment-svc generates a random ULA /48. Must be between /7 and /63 in prefix length.
 	Ipv6CidrBlock *AzureIPv6CIDRBlock `json:"ipv6_cidr_block,omitempty"`
 
+	// PeerVnetIds Azure VNet resource IDs to peer with. IDs are case-insensitive and must be unique, and are returned as submitted. In an update, omission preserves existing peers and an empty array removes them.
+	PeerVnetIds *AzurePeerVNetIDs `json:"peer_vnet_ids,omitempty"`
+
+	// PrivateDnsZoneIds Azure Private DNS Zone resource IDs to link. IDs are case-insensitive and must be unique, and are returned as submitted. Zone names must also be unique, and zones that belong to NGINXaaS or Microsoft are rejected. In an update, omission preserves existing links and an empty array removes them.
+	PrivateDnsZoneIds *AzurePrivateDNSZoneIDs `json:"private_dns_zone_ids,omitempty"`
+
 	// Region Azure region. Must match the programmatic name from https://learn.microsoft.com/en-us/azure/reliability/regions-list.
 	Region AzureRegion `json:"region"`
+}
+
+// CreateAzureFrontendInfo Azure frontend info used in a create request.
+type CreateAzureFrontendInfo struct {
+	// ManagedPublicEndpoint Managed public endpoint info used in a create request.
+	ManagedPublicEndpoint *CreateManagedPublicEndpoint `json:"managed_public_endpoint,omitempty"`
+
+	// PrivateEndpoint Azure private endpoint info returned in a deployment response or used in requests.
+	PrivateEndpoint *AzurePrivateEndpoint `json:"private_endpoint,omitempty"`
 }
 
 // CreateDeploymentCloudProperties Cloud-specific create properties.
@@ -296,8 +412,8 @@ type CreateGoogleDeploymentProperties struct {
 	MetricProjectId *GoogleProjectID `json:"metric_project_id,omitempty"`
 
 	// NetworkAttachment Google network attachment.
-	NetworkAttachment GoogleNetworkAttachment `json:"network_attachment"`
-	Region            GoogleRegion            `json:"region"`
+	NetworkAttachment *GoogleNetworkAttachment `json:"network_attachment,omitempty"`
+	Region            GoogleRegion             `json:"region"`
 }
 
 // CreateGoogleFrontendInfo Google frontend info used in a create request.
@@ -364,6 +480,9 @@ type Deployment struct {
 
 	// WafEnabled Whether WAF is enabled for the deployment.
 	WafEnabled *WafEnabled `json:"waf_enabled,omitempty"`
+
+	// WorkloadIdentity The workload identity attached to the deployment, if any.
+	WorkloadIdentity *DeploymentWorkloadIdentity `json:"workload_identity,omitempty"`
 }
 
 // DeploymentCloudName Name of the cloud where deployment resources are provisioned.
@@ -406,6 +525,9 @@ type DeploymentCreateRequest struct {
 
 	// WafEnabled Whether WAF is enabled for the deployment.
 	WafEnabled *WafEnabled `json:"waf_enabled,omitempty"`
+
+	// WorkloadIdentityId A globally unique identifier for the workload identity.
+	WorkloadIdentityId *WorkloadIdentityObjectID `json:"workload_identity_id,omitempty"`
 }
 
 // DeploymentListResponse List of deployments.
@@ -430,10 +552,10 @@ type DeploymentScale struct {
 // DeploymentState Deployment state info
 type DeploymentState struct {
 	// Details State details.
-	Details *string `json:"details,omitempty"`
+	Details *StateDetails `json:"details,omitempty"`
 
 	// ModifiedAt Datetime of last state change.
-	ModifiedAt time.Time `json:"modified_at"`
+	ModifiedAt StateModifiedAt `json:"modified_at"`
 
 	// State State name/value.
 	State DeploymentStateState `json:"state"`
@@ -445,13 +567,15 @@ type DeploymentStateState string
 // DeploymentStatus Deployment status info.
 type DeploymentStatus struct {
 	// ConfigState Deployment state info
-	ConfigState DeploymentConfigState `json:"config_state"`
+	ConfigState         DeploymentConfigState        `json:"config_state"`
+	FrontendConnections *NetworkConnectionStatusList `json:"frontend_connections,omitempty"`
 
 	// NginxTargetVersion Target nginx version in deployment
 	NginxTargetVersion string `json:"nginx_target_version"`
 
 	// ProvisioningState Deployment state info
-	ProvisioningState DeploymentProvisioningState `json:"provisioning_state"`
+	ProvisioningState   DeploymentProvisioningState  `json:"provisioning_state"`
+	UpstreamConnections *NetworkConnectionStatusList `json:"upstream_connections,omitempty"`
 
 	// WafVersion The WAF version currently active on the deployment. Only populated if WAF is enabled
 	WafVersion *string `json:"waf_version,omitempty"`
@@ -476,10 +600,25 @@ type DeploymentUpdateRequest struct {
 
 	// WafEnabled Whether WAF is enabled for the deployment.
 	WafEnabled *WafEnabled `json:"waf_enabled,omitempty"`
+
+	// WorkloadIdentityId A globally unique identifier for the workload identity.
+	WorkloadIdentityId *WorkloadIdentityObjectID `json:"workload_identity_id,omitempty"`
+}
+
+// DeploymentWorkloadIdentity The workload identity attached to the deployment, if any.
+type DeploymentWorkloadIdentity struct {
+	// Id A globally unique identifier for the workload identity.
+	Id WorkloadIdentityObjectID `json:"id"`
+
+	// Name Name of the attached workload identity.
+	Name string `json:"name"`
 }
 
 // EmptyStringOrAWSRoleARN Amazon Resource Name (ARN) for an IAM role, allowing empty strings
 type EmptyStringOrAWSRoleARN = string
+
+// EmptyStringOrGoogleNetworkAttachment Google network attachment or empty string.
+type EmptyStringOrGoogleNetworkAttachment = string
 
 // EmptyStringOrGoogleProjectID defines model for EmptyStringOrGoogleProjectID.
 type EmptyStringOrGoogleProjectID = string
@@ -501,8 +640,8 @@ type GoogleDeploymentProperties struct {
 	// MetricProjectId The Google Cloud project ID where NGINXaaS metrics will be exported.
 	MetricProjectId *GoogleProjectID `json:"metric_project_id,omitempty"`
 
-	// NetworkAttachment Google network attachment.
-	NetworkAttachment GoogleNetworkAttachment `json:"network_attachment"`
+	// NetworkAttachment Google network attachment or empty string.
+	NetworkAttachment *EmptyStringOrGoogleNetworkAttachment `json:"network_attachment,omitempty"`
 
 	// ProjectId The Google Cloud project ID where this deployment resides. This project_id can be used for the network attachment allowlist.
 	ProjectId GoogleProjectID `json:"project_id"`
@@ -603,6 +742,33 @@ type ManagedPublicEndpointACLRule0 = interface{}
 // ManagedPublicEndpointACLRule1 defines model for .
 type ManagedPublicEndpointACLRule1 = interface{}
 
+// NetworkConnectionStatus Network connection status of upstream connections or frontend connections, if any.
+type NetworkConnectionStatus struct {
+	// Details State details.
+	Details *StateDetails `json:"details,omitempty"`
+
+	// Id Network connection ID.
+	Id string `json:"id"`
+
+	// ModifiedAt Datetime of last state change.
+	ModifiedAt StateModifiedAt `json:"modified_at"`
+
+	// State State name/value.
+	State NetworkConnectionStatusState `json:"state"`
+}
+
+// NetworkConnectionStatusState State name/value.
+type NetworkConnectionStatusState string
+
+// NetworkConnectionStatusList defines model for NetworkConnectionStatusList.
+type NetworkConnectionStatusList = []NetworkConnectionStatus
+
+// StateDetails State details.
+type StateDetails = string
+
+// StateModifiedAt Datetime of last state change.
+type StateModifiedAt = time.Time
+
 // UpdateAWSDeploymentProperties AWS deployment properties used in an update request.
 type UpdateAWSDeploymentProperties struct {
 	// Frontend AWS frontend info used in an update request.
@@ -613,6 +779,9 @@ type UpdateAWSDeploymentProperties struct {
 
 	// Monitoring Configuration for exporting deployment logs and metrics.
 	Monitoring *AWSMonitoring `json:"monitoring,omitempty"`
+
+	// TransitGatewayVpcAttachment AWS Transit Gateway VPC attachment configuration. resource_share_arn and transit_gateway_id must both be set, or both be empty strings. Both empty means no Transit Gateway attachment: on create, none is configured; on update, the existing attachment is removed.
+	TransitGatewayVpcAttachment *AWSTransitGatewayVpcAttachment `json:"transit_gateway_vpc_attachment,omitempty"`
 
 	// VpcPeeringConnections List of AWS VPC peering connections between the deployment VPC and upstream network VPCs.
 	VpcPeeringConnections *AWSVpcPeeringConnections `json:"vpc_peering_connections,omitempty"`
@@ -634,7 +803,25 @@ type UpdateAWSIdentity struct {
 }
 
 // UpdateAzureDeploymentProperties Azure deployment properties used in an update request.
-type UpdateAzureDeploymentProperties = map[string]interface{}
+type UpdateAzureDeploymentProperties struct {
+	// Frontend Azure frontend info used in an update request.
+	Frontend *UpdateAzureFrontendInfo `json:"frontend,omitempty"`
+
+	// PeerVnetIds Azure VNet resource IDs to peer with. IDs are case-insensitive and must be unique, and are returned as submitted. In an update, omission preserves existing peers and an empty array removes them.
+	PeerVnetIds *AzurePeerVNetIDs `json:"peer_vnet_ids,omitempty"`
+
+	// PrivateDnsZoneIds Azure Private DNS Zone resource IDs to link. IDs are case-insensitive and must be unique, and are returned as submitted. Zone names must also be unique, and zones that belong to NGINXaaS or Microsoft are rejected. In an update, omission preserves existing links and an empty array removes them.
+	PrivateDnsZoneIds *AzurePrivateDNSZoneIDs `json:"private_dns_zone_ids,omitempty"`
+}
+
+// UpdateAzureFrontendInfo Azure frontend info used in an update request.
+type UpdateAzureFrontendInfo struct {
+	// ManagedPublicEndpoint Managed public endpoint info used in an update request.
+	ManagedPublicEndpoint *UpdateManagedPublicEndpoint `json:"managed_public_endpoint,omitempty"`
+
+	// PrivateEndpoint Azure private endpoint info returned in a deployment response or used in requests.
+	PrivateEndpoint *AzurePrivateEndpoint `json:"private_endpoint,omitempty"`
+}
 
 // UpdateDeploymentCloudProperties Cloud-specific update properties.
 type UpdateDeploymentCloudProperties struct {
@@ -661,6 +848,9 @@ type UpdateGoogleDeploymentProperties struct {
 
 	// MetricProjectId The Google Cloud project ID where NGINXaaS metrics will be exported. Set to an empty string to disable metric exporting.
 	MetricProjectId *EmptyStringOrGoogleProjectID `json:"metric_project_id,omitempty"`
+
+	// NetworkAttachment The Google network attachment to use for private endpoint connectivity. Set to an empty string to remove the existing network attachment.
+	NetworkAttachment *EmptyStringOrGoogleNetworkAttachment `json:"network_attachment,omitempty"`
 }
 
 // UpdateGoogleFrontendInfo Google frontend info used in an update request.
@@ -693,8 +883,17 @@ type UpdateManagedPublicEndpoint struct {
 // WafEnabled Whether WAF is enabled for the deployment.
 type WafEnabled = bool
 
+// WorkloadIdentityObjectID A globally unique identifier for the workload identity.
+type WorkloadIdentityObjectID = objects.ID
+
 // DeploymentObjectID A globally unique identifier for the deployment.
 type DeploymentObjectID = externalRef0.DeploymentObjectID
+
+// UpdateDeploymentParams defines parameters for UpdateDeployment.
+type UpdateDeploymentParams struct {
+	// IfMatch If-Match makes a request conditional. It can be used to prevent lost updates.
+	IfMatch *externalRef0.IfMatch `json:"If-Match,omitempty"`
+}
 
 // CreateDeploymentJSONRequestBody defines body for CreateDeployment for application/json ContentType.
 type CreateDeploymentJSONRequestBody = DeploymentCreateRequest
@@ -928,9 +1127,9 @@ type ClientInterface interface {
 	GetDeployment(ctx context.Context, deploymentId DeploymentObjectID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateDeploymentWithBody request with any body
-	UpdateDeploymentWithBody(ctx context.Context, deploymentId DeploymentObjectID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateDeploymentWithBody(ctx context.Context, deploymentId DeploymentObjectID, params *UpdateDeploymentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	UpdateDeployment(ctx context.Context, deploymentId DeploymentObjectID, body UpdateDeploymentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateDeployment(ctx context.Context, deploymentId DeploymentObjectID, params *UpdateDeploymentParams, body UpdateDeploymentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) ListDeployments(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -993,8 +1192,8 @@ func (c *Client) GetDeployment(ctx context.Context, deploymentId DeploymentObjec
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateDeploymentWithBody(ctx context.Context, deploymentId DeploymentObjectID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateDeploymentRequestWithBody(c.Server, deploymentId, contentType, body)
+func (c *Client) UpdateDeploymentWithBody(ctx context.Context, deploymentId DeploymentObjectID, params *UpdateDeploymentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateDeploymentRequestWithBody(c.Server, deploymentId, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1005,8 +1204,8 @@ func (c *Client) UpdateDeploymentWithBody(ctx context.Context, deploymentId Depl
 	return c.Client.Do(req)
 }
 
-func (c *Client) UpdateDeployment(ctx context.Context, deploymentId DeploymentObjectID, body UpdateDeploymentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateDeploymentRequest(c.Server, deploymentId, body)
+func (c *Client) UpdateDeployment(ctx context.Context, deploymentId DeploymentObjectID, params *UpdateDeploymentParams, body UpdateDeploymentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateDeploymentRequest(c.Server, deploymentId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1153,18 +1352,18 @@ func NewGetDeploymentRequest(server string, deploymentId DeploymentObjectID) (*h
 }
 
 // NewUpdateDeploymentRequest calls the generic UpdateDeployment builder with application/json body
-func NewUpdateDeploymentRequest(server string, deploymentId DeploymentObjectID, body UpdateDeploymentJSONRequestBody) (*http.Request, error) {
+func NewUpdateDeploymentRequest(server string, deploymentId DeploymentObjectID, params *UpdateDeploymentParams, body UpdateDeploymentJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewUpdateDeploymentRequestWithBody(server, deploymentId, "application/json", bodyReader)
+	return NewUpdateDeploymentRequestWithBody(server, deploymentId, params, "application/json", bodyReader)
 }
 
 // NewUpdateDeploymentRequestWithBody generates requests for UpdateDeployment with any type of body
-func NewUpdateDeploymentRequestWithBody(server string, deploymentId DeploymentObjectID, contentType string, body io.Reader) (*http.Request, error) {
+func NewUpdateDeploymentRequestWithBody(server string, deploymentId DeploymentObjectID, params *UpdateDeploymentParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -1195,6 +1394,21 @@ func NewUpdateDeploymentRequestWithBody(server string, deploymentId DeploymentOb
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "If-Match", *params.IfMatch, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
 
 	return req, nil
 }
@@ -1257,9 +1471,9 @@ type ClientWithResponsesInterface interface {
 	GetDeploymentWithResponse(ctx context.Context, deploymentId DeploymentObjectID, reqEditors ...RequestEditorFn) (*GetDeploymentResponse, error)
 
 	// UpdateDeploymentWithBodyWithResponse request with any body
-	UpdateDeploymentWithBodyWithResponse(ctx context.Context, deploymentId DeploymentObjectID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateDeploymentResponse, error)
+	UpdateDeploymentWithBodyWithResponse(ctx context.Context, deploymentId DeploymentObjectID, params *UpdateDeploymentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateDeploymentResponse, error)
 
-	UpdateDeploymentWithResponse(ctx context.Context, deploymentId DeploymentObjectID, body UpdateDeploymentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateDeploymentResponse, error)
+	UpdateDeploymentWithResponse(ctx context.Context, deploymentId DeploymentObjectID, params *UpdateDeploymentParams, body UpdateDeploymentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateDeploymentResponse, error)
 }
 
 type ListDeploymentsResponse struct {
@@ -1406,6 +1620,7 @@ type UpdateDeploymentResponse struct {
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
 	JSON409      *externalRef0.Conflict
+	JSON412      *externalRef0.PreconditionFailed
 	JSON500      *externalRef0.InternalServerErr
 }
 
@@ -1478,16 +1693,16 @@ func (c *ClientWithResponses) GetDeploymentWithResponse(ctx context.Context, dep
 }
 
 // UpdateDeploymentWithBodyWithResponse request with arbitrary body returning *UpdateDeploymentResponse
-func (c *ClientWithResponses) UpdateDeploymentWithBodyWithResponse(ctx context.Context, deploymentId DeploymentObjectID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateDeploymentResponse, error) {
-	rsp, err := c.UpdateDeploymentWithBody(ctx, deploymentId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) UpdateDeploymentWithBodyWithResponse(ctx context.Context, deploymentId DeploymentObjectID, params *UpdateDeploymentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateDeploymentResponse, error) {
+	rsp, err := c.UpdateDeploymentWithBody(ctx, deploymentId, params, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseUpdateDeploymentResponse(rsp)
 }
 
-func (c *ClientWithResponses) UpdateDeploymentWithResponse(ctx context.Context, deploymentId DeploymentObjectID, body UpdateDeploymentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateDeploymentResponse, error) {
-	rsp, err := c.UpdateDeployment(ctx, deploymentId, body, reqEditors...)
+func (c *ClientWithResponses) UpdateDeploymentWithResponse(ctx context.Context, deploymentId DeploymentObjectID, params *UpdateDeploymentParams, body UpdateDeploymentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateDeploymentResponse, error) {
+	rsp, err := c.UpdateDeployment(ctx, deploymentId, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -1758,6 +1973,13 @@ func ParseUpdateDeploymentResponse(rsp *http.Response) (*UpdateDeploymentRespons
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest externalRef0.PreconditionFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON412 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest externalRef0.InternalServerErr

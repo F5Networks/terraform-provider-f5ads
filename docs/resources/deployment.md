@@ -171,6 +171,7 @@ resource "f5ads_deployment" "aws_managed_public_endpoint" {
 - `id` (String) Unique identifier for the deployment, assigned by F5 ADS.
 - `nginx_version` (String) NGINX version for the deployment.
 - `organization_id` (String) Identifier of the organization that owns the deployment.
+- `private_link_service_endpoint_name` (String) AWS PrivateLink service endpoint name for a private frontend. Use as the service_name of an AWS VPC endpoint.
 
 <a id="nestedatt--aws_cloud_properties"></a>
 ### Nested Schema for `aws_cloud_properties`
@@ -185,12 +186,18 @@ Optional:
 
 - `identity` (Attributes) Identity configuration for the deployment. Remove this block to disable IAM role association. (see [below for nested schema](#nestedatt--aws_cloud_properties--identity))
 
+Read-Only:
+
+- `account_id` (String) AWS account ID hosting the deployment.
+- `vpc_id` (String) AWS VPC ID of the deployment.
+
 <a id="nestedatt--aws_cloud_properties--frontend"></a>
 ### Nested Schema for `aws_cloud_properties.frontend`
 
-Required:
+Optional:
 
 - `managed_public_endpoint` (Attributes) Configuration for a managed public endpoint that exposes the deployment to the internet. (see [below for nested schema](#nestedatt--aws_cloud_properties--frontend--managed_public_endpoint))
+- `private_endpoint` (Attributes) Configuration for AWS PrivateLink ingress. Specify an empty object to enable it. (see [below for nested schema](#nestedatt--aws_cloud_properties--frontend--private_endpoint))
 
 <a id="nestedatt--aws_cloud_properties--frontend--managed_public_endpoint"></a>
 ### Nested Schema for `aws_cloud_properties.frontend.managed_public_endpoint`
@@ -212,6 +219,14 @@ Required:
 - `protocol` (String) Network protocol this ACL rule applies to (e.g. "tcp" or "udp").
 - `source_prefixes` (List of String) List of source CIDR prefixes allowed by this ACL rule.
 
+
+
+<a id="nestedatt--aws_cloud_properties--frontend--private_endpoint"></a>
+### Nested Schema for `aws_cloud_properties.frontend.private_endpoint`
+
+Read-Only:
+
+- `private_link_service_endpoint_name` (String) AWS PrivateLink service endpoint name assigned by F5 ADS.
 
 
 

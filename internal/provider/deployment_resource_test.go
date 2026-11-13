@@ -518,6 +518,8 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "cloud", "aws"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.region", "us-east-1"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.ipv4_cidr_block", "10.0.0.0/24"),
+					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "aws_cloud_properties.vpc_id"),
+					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "aws_cloud_properties.account_id"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.frontend.managed_public_endpoint.acl.#", "1"),
 					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "id"),
 					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "aws_cloud_properties.frontend.managed_public_endpoint.service_endpoint"),

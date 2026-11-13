@@ -41,18 +41,19 @@ type deploymentResource struct {
 }
 
 type deploymentResourceModel struct {
-	Id                    types.String                `tfsdk:"id"`
-	Name                  types.String                `tfsdk:"name"`
-	Description           types.String                `tfsdk:"description"`
-	Cloud                 types.String                `tfsdk:"cloud"`
-	NginxVersion          types.String                `tfsdk:"nginx_version"`
-	GoogleCloudProperties *GoogleCloudPropertiesModel `tfsdk:"google_cloud_properties"`
-	AwsCloudProperties    *AwsCloudPropertiesModel    `tfsdk:"aws_cloud_properties"`
-	Capacity              types.Int64                 `tfsdk:"capacity"`
-	NginxConfigID         types.String                `tfsdk:"nginx_config_id"`
-	NginxConfigVersionID  types.String                `tfsdk:"nginx_config_version_id"`
-	OrganizationID        types.String                `tfsdk:"organization_id"`
-	WafEnabled            types.Bool                  `tfsdk:"waf_enabled"`
+	Id                             types.String                `tfsdk:"id"`
+	Name                           types.String                `tfsdk:"name"`
+	Description                    types.String                `tfsdk:"description"`
+	Cloud                          types.String                `tfsdk:"cloud"`
+	NginxVersion                   types.String                `tfsdk:"nginx_version"`
+	GoogleCloudProperties          *GoogleCloudPropertiesModel `tfsdk:"google_cloud_properties"`
+	AwsCloudProperties             *AwsCloudPropertiesModel    `tfsdk:"aws_cloud_properties"`
+	Capacity                       types.Int64                 `tfsdk:"capacity"`
+	NginxConfigID                  types.String                `tfsdk:"nginx_config_id"`
+	NginxConfigVersionID           types.String                `tfsdk:"nginx_config_version_id"`
+	OrganizationID                 types.String                `tfsdk:"organization_id"`
+	WafEnabled                     types.Bool                  `tfsdk:"waf_enabled"`
+	PrivateLinkServiceEndpointName types.String                `tfsdk:"private_link_service_endpoint_name"`
 }
 
 type GoogleCloudPropertiesModel struct {
@@ -91,6 +92,8 @@ type PrivateEndpointModel struct {
 }
 
 type AwsCloudPropertiesModel struct {
+	VpcID         types.String      `tfsdk:"vpc_id"`
+	AccountID     types.String      `tfsdk:"account_id"`
 	Region        types.String      `tfsdk:"region"`
 	Ipv4CidrBlock types.String      `tfsdk:"ipv4_cidr_block"`
 	Identity      *AwsIdentityModel `tfsdk:"identity"`
@@ -103,6 +106,18 @@ type AwsIdentityModel struct {
 
 type AwsFrontendModel struct {
 	ManagedPublicEndpoint *ManagedPublicEndpointModel `tfsdk:"managed_public_endpoint"`
+	PrivateEndpoint       *AwsPrivateEndpointModel    `tfsdk:"private_endpoint"`
+}
+
+type AwsPrivateEndpointModel struct {
+	PrivateLinkServiceEndpointName types.String `tfsdk:"private_link_service_endpoint_name"`
+}
+
+func awsPrivateLinkServiceEndpointName(dep *deployments.Deployment) types.String {
+	if dep.CloudProperties.Aws != nil && dep.CloudProperties.Aws.Frontend.PrivateEndpoint != nil {
+		return types.StringPointerValue(dep.CloudProperties.Aws.Frontend.PrivateEndpoint.PrivateLinkServiceEndpointName)
+	}
+	return types.StringNull()
 }
 
 // Metadata returns the name of the resource.
@@ -116,6 +131,10 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 		Description: "Manages an F5 ADS deployment. Deployments are created asynchronously; " +
 			"the provider polls until the deployment reaches a ready state before completing.",
 		Attributes: map[string]schema.Attribute{
+			"private_link_service_endpoint_name": schema.StringAttribute{
+				Computed:    true,
+				Description: "AWS PrivateLink service endpoint name for a private frontend. Use as the service_name of an AWS VPC endpoint.",
+			},
 			"name": schema.StringAttribute{
 				Required:    true,
 				Description: "Unique name for the deployment. Changing this value forces a new resource to be created.",
@@ -293,6 +312,14 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Optional:    true,
 				Description: "AWS-specific properties for the deployment. Required when deploying to AWS.",
 				Attributes: map[string]schema.Attribute{
+					"vpc_id": schema.StringAttribute{
+						Computed:    true,
+						Description: "AWS VPC ID of the deployment.",
+					},
+					"account_id": schema.StringAttribute{
+						Computed:    true,
+						Description: "AWS account ID hosting the deployment.",
+					},
 					"region": schema.StringAttribute{
 						Required:    true,
 						Description: "AWS region where the deployment is hosted (e.g. \"us-east-1\"). Changing this value forces a new resource to be created.",
@@ -325,7 +352,7 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 						Description: "Frontend networking configuration for the deployment.",
 						Attributes: map[string]schema.Attribute{
 							"managed_public_endpoint": schema.SingleNestedAttribute{
-								Required:    true,
+								Optional:    true,
 								Description: "Configuration for a managed public endpoint that exposes the deployment to the internet.",
 								Attributes: map[string]schema.Attribute{
 									"service_endpoint": schema.StringAttribute{
@@ -355,6 +382,16 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 												},
 											},
 										},
+									},
+								},
+							},
+							"private_endpoint": schema.SingleNestedAttribute{
+								Optional:    true,
+								Description: "Configuration for AWS PrivateLink ingress. Specify an empty object to enable it.",
+								Attributes: map[string]schema.Attribute{
+									"private_link_service_endpoint_name": schema.StringAttribute{
+										Computed:    true,
+										Description: "AWS PrivateLink service endpoint name assigned by F5 ADS.",
 									},
 								},
 							},
@@ -404,7 +441,7 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 	if plan.GoogleCloudProperties != nil {
 		depGoogleCloudProperties := &deployments.CreateGoogleDeploymentProperties{
 			Region:            plan.GoogleCloudProperties.Region.ValueString(),
-			NetworkAttachment: plan.GoogleCloudProperties.NetworkAttachment.ValueString(),
+			NetworkAttachment: plan.GoogleCloudProperties.NetworkAttachment.ValueStringPointer(),
 			LogProjectId:      plan.GoogleCloudProperties.LogProjectId.ValueStringPointer(),
 			MetricProjectId:   plan.GoogleCloudProperties.MetricProjectId.ValueStringPointer(),
 		}
@@ -492,6 +529,9 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 		depReq.CloudProperties = deployments.CreateDeploymentCloudProperties{
 			Aws: depAwsCloudProperties,
 		}
+		if plan.AwsCloudProperties.Frontend.PrivateEndpoint != nil {
+			depAwsCloudProperties.Frontend.PrivateEndpoint = &deployments.AWSPrivateEndpoint{}
+		}
 	}
 
 	dep, err := r.client.CreateDeploymentWithResponse(ctx, depReq)
@@ -519,7 +559,7 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	deploymentResponse, err := waitUntilDeploymentReady(ctx, r.client, &dep.JSON202.Id)
+	ready, err := waitUntilDeploymentReady(ctx, r.client, &dep.JSON202.Id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error polling deployment creation",
@@ -528,11 +568,13 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
+	deploymentResponse := ready.JSON200
 	// map response body to model
 	plan.Id = types.StringValue(deploymentResponse.Id.String())
 	plan.Cloud = types.StringValue(string(deploymentResponse.Cloud))
 	plan.NginxVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
 	plan.OrganizationID = types.StringValue(deploymentResponse.OrganizationId.String())
+	plan.PrivateLinkServiceEndpointName = awsPrivateLinkServiceEndpointName(deploymentResponse)
 	if plan.GoogleCloudProperties != nil {
 		if plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint != nil {
 			plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint.ServiceEndpoint = types.StringValue(
@@ -553,6 +595,11 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	if plan.AwsCloudProperties != nil {
+		plan.AwsCloudProperties.VpcID = types.StringValue(deploymentResponse.CloudProperties.Aws.VpcId)
+		plan.AwsCloudProperties.AccountID = types.StringValue(deploymentResponse.CloudProperties.Aws.AccountId)
+		if plan.AwsCloudProperties.Frontend.PrivateEndpoint != nil {
+			plan.AwsCloudProperties.Frontend.PrivateEndpoint.PrivateLinkServiceEndpointName = plan.PrivateLinkServiceEndpointName
+		}
 		if plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint != nil {
 			plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.ServiceEndpoint = types.StringValue(
 				*deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.ServiceEndpoint)
@@ -635,7 +682,10 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 	if deploymentResponse.CloudProperties.Google != nil {
 		var googleCloudProperties GoogleCloudPropertiesModel
 		googleCloudProperties.Region = types.StringValue(deploymentResponse.CloudProperties.Google.Region)
-		googleCloudProperties.NetworkAttachment = types.StringValue(deploymentResponse.CloudProperties.Google.NetworkAttachment)
+		googleCloudProperties.NetworkAttachment = types.StringNull()
+		if networkAttachment := deploymentResponse.CloudProperties.Google.NetworkAttachment; networkAttachment != nil {
+			googleCloudProperties.NetworkAttachment = types.StringValue(*networkAttachment)
+		}
 		googleCloudProperties.LogProjectId = types.StringNull()
 		if deploymentResponse.CloudProperties.Google.LogProjectId != nil {
 			googleCloudProperties.LogProjectId = types.StringValue(*deploymentResponse.CloudProperties.Google.LogProjectId)
@@ -708,6 +758,8 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 
 	if deploymentResponse.CloudProperties.Aws != nil {
 		var awsCloudProperties AwsCloudPropertiesModel
+		awsCloudProperties.VpcID = types.StringValue(deploymentResponse.CloudProperties.Aws.VpcId)
+		awsCloudProperties.AccountID = types.StringValue(deploymentResponse.CloudProperties.Aws.AccountId)
 		awsCloudProperties.Region = types.StringValue(deploymentResponse.CloudProperties.Aws.Region)
 		awsCloudProperties.Ipv4CidrBlock = types.StringValue(deploymentResponse.CloudProperties.Aws.Ipv4CidrBlock)
 
@@ -748,9 +800,15 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 		}
 
 		awsCloudProperties.Frontend = frontend
+		if deploymentResponse.CloudProperties.Aws.Frontend.PrivateEndpoint != nil {
+			awsCloudProperties.Frontend.PrivateEndpoint = &AwsPrivateEndpointModel{
+				PrivateLinkServiceEndpointName: awsPrivateLinkServiceEndpointName(deploymentResponse),
+			}
+		}
 		state.AwsCloudProperties = &awsCloudProperties
 	}
 
+	state.PrivateLinkServiceEndpointName = awsPrivateLinkServiceEndpointName(deploymentResponse)
 	// Set refreshed state.
 	diags = resp.State.Set(ctx, state)
 	resp.Diagnostics.Append(diags...)
@@ -921,9 +979,13 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 				},
 			},
 		}
+		if plan.AwsCloudProperties.Frontend.PrivateEndpoint != nil {
+			// Omit the allowlist so connection resources retain ownership of it.
+			depUpdateReq.CloudProperties.Aws.Frontend.PrivateEndpoint = &deployments.AWSPrivateEndpoint{}
+		}
 	}
 
-	dep, err := r.client.UpdateDeploymentWithResponse(ctx, *deploymentObjectID, depUpdateReq)
+	dep, err := updateDeploymentWithETag(ctx, r.client, *deploymentObjectID, depUpdateReq)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error updating deployment",
@@ -948,7 +1010,7 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
-	deploymentResponse, err := waitUntilDeploymentReady(ctx, r.client, deploymentObjectID)
+	ready, err := waitUntilDeploymentReady(ctx, r.client, deploymentObjectID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error polling deployment update",
@@ -957,11 +1019,13 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
+	deploymentResponse := ready.JSON200
 	// map response body to model
 	plan.Id = types.StringValue(deploymentResponse.Id.String())
 	plan.Cloud = types.StringValue(string(deploymentResponse.Cloud))
 	plan.NginxVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
 	plan.OrganizationID = types.StringValue(deploymentResponse.OrganizationId.String())
+	plan.PrivateLinkServiceEndpointName = awsPrivateLinkServiceEndpointName(deploymentResponse)
 	if plan.GoogleCloudProperties != nil {
 		if plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint != nil {
 			plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint.ServiceEndpoint = types.StringValue(
@@ -980,6 +1044,11 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 	}
 
 	if plan.AwsCloudProperties != nil {
+		plan.AwsCloudProperties.VpcID = types.StringValue(deploymentResponse.CloudProperties.Aws.VpcId)
+		plan.AwsCloudProperties.AccountID = types.StringValue(deploymentResponse.CloudProperties.Aws.AccountId)
+		if plan.AwsCloudProperties.Frontend.PrivateEndpoint != nil {
+			plan.AwsCloudProperties.Frontend.PrivateEndpoint.PrivateLinkServiceEndpointName = plan.PrivateLinkServiceEndpointName
+		}
 		if plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint != nil {
 			plan.AwsCloudProperties.Frontend.ManagedPublicEndpoint.ServiceEndpoint = types.StringValue(
 				*deploymentResponse.CloudProperties.Aws.Frontend.ManagedPublicEndpoint.ServiceEndpoint)
@@ -1112,14 +1181,65 @@ func (r *deploymentResource) ValidateConfig(
 			return
 		}
 	}
+	if data.AwsCloudProperties != nil {
+		frontend := data.AwsCloudProperties.Frontend
+		if (frontend.ManagedPublicEndpoint == nil) == (frontend.PrivateEndpoint == nil) {
+			resp.Diagnostics.AddError("Invalid Configuration",
+				"Exactly one of managed_public_endpoint or private_endpoint must be specified within the frontend block of aws_cloud_properties.")
+		}
+	}
+}
+
+func updateDeploymentWithETag(
+	ctx context.Context,
+	client *deployments.ClientWithResponses,
+	id objects.ID,
+	body deployments.DeploymentUpdateRequest,
+) (*deployments.UpdateDeploymentResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
+	etag := ""
+	return backoff.Retry(ctx, func() (*deployments.UpdateDeploymentResponse, error) {
+		if etag == "" {
+			current, err := client.GetDeploymentWithResponse(ctx, id)
+			if err != nil {
+				return nil, backoff.Permanent(fmt.Errorf("unable to get deployment ETag: %w", err))
+			}
+			if current.StatusCode() != http.StatusOK {
+				err := errors.New(formatAPIError(current.StatusCode(), current.Body))
+				if current.StatusCode() == http.StatusTooManyRequests || current.StatusCode() >= http.StatusInternalServerError {
+					return nil, err
+				}
+				return nil, backoff.Permanent(err)
+			}
+			if current.JSON200 == nil {
+				return nil, backoff.Permanent(errors.New("server returned empty deployment"))
+			}
+			etag = current.HTTPResponse.Header.Get("ETag")
+			if etag == "" {
+				return nil, backoff.Permanent(errors.New("deployment GET response is missing ETag; refusing an unsafe deployment update"))
+			}
+		}
+
+		updated, err := client.UpdateDeploymentWithResponse(ctx, id, &deployments.UpdateDeploymentParams{IfMatch: &etag}, body)
+		if err != nil {
+			return nil, backoff.Permanent(fmt.Errorf("unable to patch deployment: %w", err))
+		}
+		if updated.StatusCode() == http.StatusPreconditionFailed {
+			etag = ""
+			return nil, errors.New("deployment changed concurrently; retrying deployment update")
+		}
+		return updated, nil
+	}, backoff.WithMaxElapsedTime(15*time.Minute))
 }
 
 func waitUntilDeploymentReady(
 	ctx context.Context,
 	c *deployments.ClientWithResponses,
 	deploymentObjectID *objects.ID,
-) (deployment *deployments.Deployment, err error) {
-	operation := func() (deployment *deployments.Deployment, err error) {
+) (*deployments.GetDeploymentResponse, error) {
+	operation := func() (*deployments.GetDeploymentResponse, error) {
 		resp, err := c.GetDeploymentWithResponse(ctx, *deploymentObjectID)
 		if err != nil {
 			return nil, backoff.Permanent(errors.New("unable to get deployment: " + err.Error()))
@@ -1148,24 +1268,24 @@ func waitUntilDeploymentReady(
 		}
 
 		if resp.StatusCode() == http.StatusOK && resp.JSON200 != nil {
-			deployment = resp.JSON200
-			if deployment.Status.ProvisioningState.State == deployments.Failed ||
-				deployment.Status.ConfigState.State == deployments.Failed {
+			deployment := resp.JSON200
+			if deployment.Status.ProvisioningState.State == deployments.DeploymentStateStateFailed ||
+				deployment.Status.ConfigState.State == deployments.DeploymentStateStateFailed {
 				return nil, backoff.Permanent(errors.New("deployment failed"))
 			}
-			if deployment.Status.ProvisioningState.State == deployments.Suspended {
+			if deployment.Status.ProvisioningState.State == deployments.DeploymentStateStateSuspended {
 				return nil, backoff.Permanent(errors.New("deployment suspended"))
 			}
-			if deployment.Status.ProvisioningState.State == deployments.Deleting {
+			if deployment.Status.ProvisioningState.State == deployments.DeploymentStateStateDeleting {
 				return nil, backoff.Permanent(errors.New("deployment deleting"))
 			}
-			if deployment.Status.ProvisioningState.State != deployments.Ready ||
-				deployment.Status.ConfigState.State != deployments.Ready {
+			if deployment.Status.ProvisioningState.State != deployments.DeploymentStateStateReady ||
+				deployment.Status.ConfigState.State != deployments.DeploymentStateStateReady {
 				return nil, errors.New("deployment is not in a ready state")
 			}
 		}
 
-		return deployment, nil
+		return resp, nil
 	}
 
 	result, err := backoff.Retry(ctx, operation, backoff.WithMaxElapsedTime(900*time.Second))

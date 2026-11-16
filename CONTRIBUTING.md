@@ -64,6 +64,7 @@ To develop and test the provider, you'll need:
    export F5ADS_CLIENT_ID="your-client-id"
    export F5ADS_CLIENT_SECRET="your-client-secret"
    export GOOGLE_PROJECT="your-google-project-id"
+   export AWS_PROFILE="your-aws-profile"
    ```
 
 ## Building the Provider

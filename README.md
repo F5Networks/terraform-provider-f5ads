@@ -75,6 +75,8 @@ Refer to the following examples:
 - `f5ads_deployment` - Manage F5 ADS deployments
 - `f5ads_configuration` - Manage F5 ADS configurations
 - `f5ads_certificate` - Manage F5 ADS certificates
+- `f5ads_aws_upstream_network_peer` - Manage AWS VPC peering connection for F5 ADS deployments
+- `f5ads_aws_private_endpoint_connection` - Manage AWS private endpoint connection for F5 ADS deployments
 
 ## Available Data Sources
 

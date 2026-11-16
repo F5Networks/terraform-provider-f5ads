@@ -1,0 +1,1 @@
+terraform import f5ads_aws_upstream_network_peer.upstream_a 'dep_REPLACE_ME/pcx-0123456789abcdef0'

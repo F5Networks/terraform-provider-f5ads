@@ -374,6 +374,8 @@ func (p *nginxaasProvider) DataSources(_ context.Context) []func() datasource.Da
 func (p *nginxaasProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewDeploymentResource,
+		NewAWSPrivateEndpointConnectionResource,
+		NewAWSUpstreamNetworkPeerResource,
 		NewConfigResource,
 		NewCertificateResource,
 	}

@@ -95,3 +95,23 @@ func TestAccDeploymentDataSourcePrivateEndpoint(t *testing.T) {
 		},
 	})
 }
+
+func TestAccDeploymentDataSourceAWS(t *testing.T) {
+	nameSuffix := randomNameSuffix()
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: awsManagedPublicEndpointDeployment(nameSuffix) +
+					`data "f5ads_deployment" "test" { id = f5ads_deployment.test.id }`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.f5ads_deployment.test", "cloud", "aws"),
+					resource.TestCheckResourceAttrSet("data.f5ads_deployment.test", "aws_cloud_properties.vpc_id"),
+					resource.TestCheckResourceAttrSet("data.f5ads_deployment.test", "aws_cloud_properties.account_id"),
+					resource.TestCheckResourceAttrPair("data.f5ads_deployment.test", "aws_cloud_properties.vpc_id", "f5ads_deployment.test", "aws_cloud_properties.vpc_id"),
+					resource.TestCheckResourceAttrPair("data.f5ads_deployment.test", "aws_cloud_properties.account_id", "f5ads_deployment.test", "aws_cloud_properties.account_id"),
+				),
+			},
+		},
+	})
+}

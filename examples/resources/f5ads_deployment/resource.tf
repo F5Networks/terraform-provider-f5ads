@@ -129,5 +129,15 @@ resource "f5ads_deployment" "aws_managed_public_endpoint" {
         ]
       }
     }
+    monitoring = {
+      logs = {
+        enabled          = true
+        cloudwatch_group = "/f5ads/deployment/logs"
+      }
+      metrics = {
+        enabled          = true
+        cloudwatch_group = "/f5ads/deployment/metrics"
+      }
+    }
   }
 }

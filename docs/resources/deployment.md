@@ -144,6 +144,16 @@ resource "f5ads_deployment" "aws_managed_public_endpoint" {
         ]
       }
     }
+    monitoring = {
+      logs = {
+        enabled          = true
+        cloudwatch_group = "/f5ads/deployment/logs"
+      }
+      metrics = {
+        enabled          = true
+        cloudwatch_group = "/f5ads/deployment/metrics"
+      }
+    }
   }
 }
 ```
@@ -184,6 +194,7 @@ Required:
 Optional:
 
 - `identity` (Attributes) Identity configuration for the deployment. Remove this block to disable IAM role association. (see [below for nested schema](#nestedatt--aws_cloud_properties--identity))
+- `monitoring` (Attributes) Configuration for exporting deployment telemetry into AWS CloudWatch. Requires an identity customer_role_arn with permission to write to the CloudWatch groups. Remove this block to disable telemetry export. (see [below for nested schema](#nestedatt--aws_cloud_properties--monitoring))
 
 <a id="nestedatt--aws_cloud_properties--frontend"></a>
 ### Nested Schema for `aws_cloud_properties.frontend`
@@ -221,6 +232,39 @@ Required:
 Required:
 
 - `customer_role_arn` (String) ARN of the IAM role created in your AWS account for F5 ADS to assume, granting access to services such as CloudWatch and AWS Secrets Manager.
+
+
+<a id="nestedatt--aws_cloud_properties--monitoring"></a>
+### Nested Schema for `aws_cloud_properties.monitoring`
+
+Optional:
+
+- `logs` (Attributes) Configuration for exporting deployment logs to AWS CloudWatch. (see [below for nested schema](#nestedatt--aws_cloud_properties--monitoring--logs))
+- `metrics` (Attributes) Configuration for exporting deployment metrics to AWS CloudWatch. (see [below for nested schema](#nestedatt--aws_cloud_properties--monitoring--metrics))
+
+<a id="nestedatt--aws_cloud_properties--monitoring--logs"></a>
+### Nested Schema for `aws_cloud_properties.monitoring.logs`
+
+Required:
+
+- `enabled` (Boolean) Whether exporting deployment logs is enabled.
+
+Optional:
+
+- `cloudwatch_group` (String) CloudWatch group name to export deployment logs into. Can only be set when enabled is true. Defaults to the deployment ID when not set at creation; Must be 1-512 characters consisting only of a-z, A-Z, 0-9, '_', '-', '/', '.', '#' and must not start with 'aws/'.
+
+
+<a id="nestedatt--aws_cloud_properties--monitoring--metrics"></a>
+### Nested Schema for `aws_cloud_properties.monitoring.metrics`
+
+Required:
+
+- `enabled` (Boolean) Whether exporting deployment metrics is enabled.
+
+Optional:
+
+- `cloudwatch_group` (String) CloudWatch group name to export deployment metrics into. Can only be set when enabled is true. Defaults to the deployment ID when not set at creation; Must be 1-512 characters consisting only of a-z, A-Z, 0-9, '_', '-', '/', '.', '#' and must not start with 'aws/'.
+
 
 
 

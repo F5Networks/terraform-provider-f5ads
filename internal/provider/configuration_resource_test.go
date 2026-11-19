@@ -558,6 +558,186 @@ func TestAccConfigResourcePayloads(t *testing.T) {
 	})
 }
 
+// awsSecretsManagerPayloadConfig builds an AWS private-endpoint deployment plus
+// customer resources created in the AWS account.
+func awsSecretsManagerPayloadConfig(nameSuffix int, attach bool, path, versionStage string) string {
+	const region = "us-east-2"
+	roleName := fmt.Sprintf("nginxacc-secrets-%d", nameSuffix)
+
+	conf := nginxConfContents
+	payloads := ""
+	identity := ""
+	if attach {
+		conf = tlsNginxConf(path, path)
+		resourceName := "aws_secretsmanager_secret.test.arn"
+		if versionStage != "" {
+			resourceName = fmt.Sprintf(`"${aws_secretsmanager_secret.test.arn}?version_stage=%s"`, versionStage)
+		}
+		payloads = fmt.Sprintf(`
+  payloads = [
+    {
+      type          = "aws_secrets_manager"
+      resource_name = %s
+      paths         = [%q]
+    },
+  ]`, resourceName, path)
+		identity = fmt.Sprintf(`
+    identity = {
+      customer_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/%s"
+    }`, roleName)
+	}
+
+	return fmt.Sprintf(`
+%[1]s
+
+%[2]s
+
+%[3]s
+
+resource "aws_secretsmanager_secret" "test" {
+  name                    = "nginxacc-cert-%[4]d"
+  recovery_window_in_days = 0
+  tags = {
+    Name = "nginxacc-cert-%[4]d"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "test" {
+  secret_id     = aws_secretsmanager_secret.test.id
+  secret_string = "${tls_self_signed_cert.leaf.cert_pem}${tls_private_key.leaf.private_key_pem}"
+}
+
+resource "aws_iam_role" "test" {
+  name = %[5]q
+  tags = {
+    Name = %[5]q
+  }
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+      Principal = { AWS = "arn:aws:iam::${f5ads_deployment.test.aws_cloud_properties.account_id}:root" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "test" {
+  name = "nginxacc-secrets-read-%[4]d"
+  role = aws_iam_role.test.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+      Resource = aws_secretsmanager_secret.test.arn
+    }]
+  })
+}
+
+resource "f5ads_configuration" "test" {
+  name = "nginxacc-%[4]d"
+  configs = [
+    {
+      name = "/etc/nginx"
+      files = [
+        {
+          name     = "nginx.conf"
+          contents = base64encode(%[6]q)
+        }
+      ]
+    }
+  ]%[7]s
+}
+
+resource "f5ads_deployment" "test" {
+  name                    = "nginxacc-%[4]d"
+  capacity                = 10
+  nginx_config_id         = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
+  aws_cloud_properties = {
+    region          = %[8]q
+    ipv4_cidr_block = "10.0.0.0/24"%[9]s
+    frontend = {
+      managed_public_endpoint = {
+        acl = []
+      }
+    }
+  }
+}
+`, providerConfig, awsAcceptanceProviderConfig(region),
+		leafCertificateConfig(fmt.Sprintf("acc-awssecret-%d.example.com", nameSuffix)),
+		nameSuffix, roleName, conf, payloads, region, identity)
+}
+
+// TestAccConfigResourceAWSSecretsManagerPayload exercises aws_secrets_manager
+// payloads end-to-end against real AWS resources.
+func TestAccConfigResourceAWSSecretsManagerPayload(t *testing.T) {
+	nameSuffix := randomNameSuffix()
+	const (
+		configName     = "f5ads_configuration.test"
+		deploymentName = "f5ads_deployment.test"
+		secretName     = "aws_secretsmanager_secret.test"
+		roleName       = "aws_iam_role.test"
+	)
+
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		ExternalProviders: map[string]resource.ExternalProvider{
+			"aws": {Source: "hashicorp/aws", VersionConstraint: "~> 6.0"},
+			"tls": {Source: "hashicorp/tls", VersionConstraint: "~> 4.0"},
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: awsSecretsManagerPayloadConfig(nameSuffix, false, "", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(secretName, "name", fmt.Sprintf("nginxacc-cert-%d", nameSuffix)),
+					resource.TestCheckResourceAttr(roleName, "name", fmt.Sprintf("nginxacc-secrets-%d", nameSuffix)),
+					resource.TestCheckResourceAttr(secretName, "tags.Name", fmt.Sprintf("nginxacc-cert-%d", nameSuffix)),
+					resource.TestCheckResourceAttr(roleName, "tags.Name", fmt.Sprintf("nginxacc-secrets-%d", nameSuffix)),
+					resource.TestCheckResourceAttrSet(deploymentName, "aws_cloud_properties.account_id"),
+					resource.TestCheckNoResourceAttr(configName, "payloads.#"),
+				),
+			},
+			// Attach the role to the deployment and mount the secret.
+			{
+				Config: awsSecretsManagerPayloadConfig(nameSuffix, true, "/etc/nginx/tls/server.pem", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(configName, "payloads.#", "1"),
+					resource.TestCheckResourceAttr(configName, "payloads.0.type", "aws_secrets_manager"),
+					resource.TestCheckResourceAttrPair(configName, "payloads.0.resource_name", secretName, "arn"),
+					resource.TestCheckNoResourceAttr(configName, "payloads.0.object_id"),
+					resource.TestCheckResourceAttr(configName, "payloads.0.paths.#", "1"),
+					resource.TestCheckResourceAttr(configName, "payloads.0.paths.0", "/etc/nginx/tls/server.pem"),
+					resource.TestCheckResourceAttrPair(deploymentName, "aws_cloud_properties.identity.customer_role_arn", roleName, "arn"),
+					resource.TestCheckResourceAttrPair(deploymentName, "nginx_config_version_id", configName, "latest_version_id"),
+				),
+			},
+			{
+				ResourceName:      configName,
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: awsSecretsManagerPayloadConfig(nameSuffix, true, "/etc/nginx/certs/site.pem", "AWSCURRENT"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestMatchResourceAttr(configName, "payloads.0.resource_name",
+						regexp.MustCompile(`^arn:aws:secretsmanager:us-east-2:\d{12}:secret:nginxacc-cert-\d+-[A-Za-z0-9]{6}\?version_stage=AWSCURRENT$`)),
+					resource.TestCheckResourceAttr(configName, "payloads.0.paths.0", "/etc/nginx/certs/site.pem"),
+					resource.TestCheckResourceAttrPair(deploymentName, "nginx_config_version_id", configName, "latest_version_id"),
+				),
+			},
+			{
+				Config: awsSecretsManagerPayloadConfig(nameSuffix, false, "", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr(configName, "payloads.#"),
+					resource.TestCheckNoResourceAttr(deploymentName, "aws_cloud_properties.identity"),
+				),
+			},
+		},
+	})
+}
+
 func TestAccConfigResourcePayloadsValidation(t *testing.T) {
 	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -593,6 +773,25 @@ func TestAccConfigResourcePayloadsValidation(t *testing.T) {
       type      = "managed_certificate"
       object_id = "cert_123"
       paths     = [""]
+    }`),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`string length must be at\s+least 1`),
+			},
+			{
+				Config: configResourceInvalidPayload("nginxacc-bothrefs", `{
+      type          = "aws_secrets_manager"
+      object_id     = "cert_123"
+      resource_name = "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-cert-AbCdEf"
+      paths         = ["/etc/nginx/tls/server.pem"]
+    }`),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`Invalid Attribute Combination`),
+			},
+			{
+				Config: configResourceInvalidPayload("nginxacc-emptyresname", `{
+      type          = "aws_secrets_manager"
+      resource_name = ""
+      paths         = ["/etc/nginx/tls/server.pem"]
     }`),
 				PlanOnly:    true,
 				ExpectError: regexp.MustCompile(`string length must be at\s+least 1`),

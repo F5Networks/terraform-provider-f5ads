@@ -143,6 +143,35 @@ resource "f5ads_configuration" "example2" {
   }
 }
 
+# Example using a certificate stored in AWS Secrets Manager. The secret is fetched
+# by the deployment, so this configuration can only be used on an AWS deployment
+# whose identity customer_role_arn is allowed to read the secret.
+resource "f5ads_configuration" "example_aws_secrets_manager" {
+  name = "example-aws-secret-config"
+
+  payloads = [
+    {
+      type = "aws_secrets_manager"
+      resource_name = "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-cert-AbCdEf"
+      paths         = ["/etc/nginx/tls/server.pem"]
+    },
+  ]
+
+  configs = [
+    {
+      name = "/etc/nginx"
+      files = [
+        {
+          name = "nginx.conf"
+          contents = base64encode(replace(replace(local.nginx_tls_conf,
+            "/etc/nginx/tls/server.crt", "/etc/nginx/tls/server.pem"),
+          "/etc/nginx/tls/server.key", "/etc/nginx/tls/server.pem"))
+        },
+      ]
+    },
+  ]
+}
+
 # Example with auxiliary files. Removing every aux block clears
 # all auxiliary content from the configuration on the next apply.
 resource "f5ads_configuration" "example_aux" {
@@ -208,7 +237,7 @@ resource "f5ads_configuration" "example_aux" {
 - `description` (String) Description of the F5 ADS configuration.
 - `name` (String) Unique name for the F5 ADS configuration. Must be 3-30 characters, start with a lowercase letter, end with a lowercase letter or digit, and contain only lowercase letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set.
 - `name_prefix` (String) Creates a unique name for the F5 ADS configuration beginning with this prefix. Must start with a lowercase letter and contain only lowercase letters, digits, and hyphens. Exactly one of `name` or `name_prefix` must be set.
-- `payloads` (Attributes List) Managed certificates and private keys to deploy with this configuration. (see [below for nested schema](#nestedatt--payloads))
+- `payloads` (Attributes List) Managed certificates, private keys, and AWS Secrets Manager secrets to deploy with this configuration. (see [below for nested schema](#nestedatt--payloads))
 
 ### Read-Only
 
@@ -261,11 +290,12 @@ Optional:
 Required:
 
 - `paths` (List of String) File paths where the certificate or private key will be deployed. Use these paths in the NGINX ssl_certificate or ssl_certificate_key directives.
-- `type` (String) Payload type: `managed_certificate` or `managed_key`.
+- `type` (String) Payload type: `managed_certificate`, `managed_key`, or `aws_secrets_manager`.
 
 Optional:
 
-- `object_id` (String) ID of an `f5ads_certificate` resource.
+- `object_id` (String) ID of an `f5ads_certificate` resource. Used with `managed_certificate` and `managed_key` payloads.
+- `resource_name` (String) ARN of the AWS Secrets Manager secret to deploy. Required for `aws_secrets_manager` payloads.
 
 ## Import
 

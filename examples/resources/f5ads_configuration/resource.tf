@@ -128,6 +128,35 @@ resource "f5ads_configuration" "example2" {
   }
 }
 
+# Example using a certificate stored in AWS Secrets Manager. The secret is fetched
+# by the deployment, so this configuration can only be used on an AWS deployment
+# whose identity customer_role_arn is allowed to read the secret.
+resource "f5ads_configuration" "example_aws_secrets_manager" {
+  name = "example-aws-secret-config"
+
+  payloads = [
+    {
+      type = "aws_secrets_manager"
+      resource_name = "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-cert-AbCdEf"
+      paths         = ["/etc/nginx/tls/server.pem"]
+    },
+  ]
+
+  configs = [
+    {
+      name = "/etc/nginx"
+      files = [
+        {
+          name = "nginx.conf"
+          contents = base64encode(replace(replace(local.nginx_tls_conf,
+            "/etc/nginx/tls/server.crt", "/etc/nginx/tls/server.pem"),
+          "/etc/nginx/tls/server.key", "/etc/nginx/tls/server.pem"))
+        },
+      ]
+    },
+  ]
+}
+
 # Example with auxiliary files. Removing every aux block clears
 # all auxiliary content from the configuration on the next apply.
 resource "f5ads_configuration" "example_aux" {

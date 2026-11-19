@@ -558,6 +558,105 @@ func TestAccConfigResourcePayloads(t *testing.T) {
 	})
 }
 
+const testAWSSecretARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:nginxacc-cert-AbCdEf"
+
+// configResourceWithAWSSecretsManagerPayload attaches an AWS Secrets Manager
+// secret to the configuration. The secret is only fetched when the
+// configuration is deployed.
+func configResourceWithAWSSecretsManagerPayload(nameSuffix int, resourceName, path string) string {
+	return fmt.Sprintf(`
+%s
+
+resource "f5ads_configuration" "test" {
+  name = "nginxacc-%d"
+  configs = [
+    {
+      name = "/etc/nginx"
+      files = [
+        {
+          name     = "nginx.conf"
+          contents = base64encode(%q)
+        }
+      ]
+    }
+  ]
+  payloads = [
+    {
+      type          = "aws_secrets_manager"
+      resource_name = %q
+      paths         = [%q]
+    },
+  ]
+}
+`, providerConfig, nameSuffix, tlsNginxConf(path, path), resourceName, path)
+}
+
+// configResourceWithoutAWSSecretsManagerPayload removes the payloads from the configuration.
+func configResourceWithoutAWSSecretsManagerPayload(nameSuffix int) string {
+	return fmt.Sprintf(`
+%s
+
+resource "f5ads_configuration" "test" {
+  name = "nginxacc-%d"
+  configs = [
+    {
+      name = "/etc/nginx"
+      files = [
+        {
+          name     = "nginx.conf"
+          contents = base64encode(%q)
+        }
+      ]
+    }
+  ]
+}
+`, providerConfig, nameSuffix, nginxConfContents)
+}
+
+func TestAccConfigResourceAWSSecretsManagerPayload(t *testing.T) {
+	nameSuffix := randomNameSuffix()
+	const resourceName = "f5ads_configuration.test"
+	versionedARN := testAWSSecretARN + "?version_stage=AWSCURRENT"
+
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: configResourceWithAWSSecretsManagerPayload(nameSuffix, testAWSSecretARN, "/etc/nginx/tls/server.pem"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet(resourceName, "id"),
+					resource.TestCheckResourceAttrSet(resourceName, "latest_version_id"),
+					resource.TestCheckResourceAttr(resourceName, "payloads.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "payloads.0.type", "aws_secrets_manager"),
+					resource.TestCheckResourceAttr(resourceName, "payloads.0.resource_name", testAWSSecretARN),
+					resource.TestCheckNoResourceAttr(resourceName, "payloads.0.object_id"),
+					resource.TestCheckResourceAttr(resourceName, "payloads.0.paths.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "payloads.0.paths.0", "/etc/nginx/tls/server.pem"),
+				),
+			},
+			{
+				ResourceName:      resourceName,
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			// Pinning a secret version stage and changing the path is an in-place update.
+			{
+				Config: configResourceWithAWSSecretsManagerPayload(nameSuffix, versionedARN, "/etc/nginx/certs/site.pem"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(resourceName, "payloads.#", "1"),
+					resource.TestCheckResourceAttr(resourceName, "payloads.0.resource_name", versionedARN),
+					resource.TestCheckResourceAttr(resourceName, "payloads.0.paths.0", "/etc/nginx/certs/site.pem"),
+				),
+			},
+			// Removing payloads detaches the secret.
+			{
+				Config: configResourceWithoutAWSSecretsManagerPayload(nameSuffix),
+				Check:  resource.TestCheckNoResourceAttr(resourceName, "payloads.#"),
+			},
+		},
+	})
+}
+
 func TestAccConfigResourcePayloadsValidation(t *testing.T) {
 	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -593,6 +692,25 @@ func TestAccConfigResourcePayloadsValidation(t *testing.T) {
       type      = "managed_certificate"
       object_id = "cert_123"
       paths     = [""]
+    }`),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`string length must be at\s+least 1`),
+			},
+			{
+				Config: configResourceInvalidPayload("nginxacc-bothrefs", `{
+      type          = "aws_secrets_manager"
+      object_id     = "cert_123"
+      resource_name = "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-cert-AbCdEf"
+      paths         = ["/etc/nginx/tls/server.pem"]
+    }`),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`Invalid Attribute Combination`),
+			},
+			{
+				Config: configResourceInvalidPayload("nginxacc-emptyresname", `{
+      type          = "aws_secrets_manager"
+      resource_name = ""
+      paths         = ["/etc/nginx/tls/server.pem"]
     }`),
 				PlanOnly:    true,
 				ExpectError: regexp.MustCompile(`string length must be at\s+least 1`),

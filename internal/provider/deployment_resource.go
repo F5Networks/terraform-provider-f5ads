@@ -926,7 +926,7 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 		}
 	}
 
-	dep, err := r.client.UpdateDeploymentWithResponse(ctx, *deploymentObjectID, depUpdateReq)
+	dep, err := updateDeploymentWithETag(ctx, r.client, *deploymentObjectID, depUpdateReq)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error updating deployment",
@@ -1115,6 +1115,50 @@ func (r *deploymentResource) ValidateConfig(
 			return
 		}
 	}
+}
+
+func updateDeploymentWithETag(
+	ctx context.Context,
+	client *deployments.ClientWithResponses,
+	id objects.ID,
+	body deployments.DeploymentUpdateRequest,
+) (*deployments.UpdateDeploymentResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
+	etag := ""
+	return backoff.Retry(ctx, func() (*deployments.UpdateDeploymentResponse, error) {
+		if etag == "" {
+			current, err := client.GetDeploymentWithResponse(ctx, id)
+			if err != nil {
+				return nil, backoff.Permanent(fmt.Errorf("unable to get deployment ETag: %w", err))
+			}
+			if current.StatusCode() != http.StatusOK {
+				err := errors.New(formatAPIError(current.StatusCode(), current.Body))
+				if current.StatusCode() == http.StatusTooManyRequests || current.StatusCode() >= http.StatusInternalServerError {
+					return nil, err
+				}
+				return nil, backoff.Permanent(err)
+			}
+			if current.JSON200 == nil {
+				return nil, backoff.Permanent(errors.New("server returned empty deployment"))
+			}
+			etag = current.HTTPResponse.Header.Get("ETag")
+			if etag == "" {
+				return nil, backoff.Permanent(errors.New("deployment GET response is missing ETag; refusing an unsafe deployment update"))
+			}
+		}
+
+		updated, err := client.UpdateDeploymentWithResponse(ctx, id, &deployments.UpdateDeploymentParams{IfMatch: &etag}, body)
+		if err != nil {
+			return nil, backoff.Permanent(fmt.Errorf("unable to patch deployment: %w", err))
+		}
+		if updated.StatusCode() == http.StatusPreconditionFailed {
+			etag = ""
+			return nil, errors.New("deployment changed concurrently; retrying deployment update")
+		}
+		return updated, nil
+	}, backoff.WithMaxElapsedTime(15*time.Minute))
 }
 
 func waitUntilDeploymentReady(

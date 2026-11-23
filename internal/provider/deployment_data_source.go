@@ -41,7 +41,13 @@ type deploymentDataSourceModel struct {
 	NginxConfigVersionID  types.String                `tfsdk:"nginx_config_version_id"`
 	OrganizationID        types.String                `tfsdk:"organization_id"`
 	GoogleCloudProperties *GoogleCloudPropertiesModel `tfsdk:"google_cloud_properties"`
+	AwsCloudProperties    *awsDeploymentNetworkModel  `tfsdk:"aws_cloud_properties"`
 	WafEnabled            types.Bool                  `tfsdk:"waf_enabled"`
+}
+
+type awsDeploymentNetworkModel struct {
+	VpcID     types.String `tfsdk:"vpc_id"`
+	AccountID types.String `tfsdk:"account_id"`
 }
 
 // Metadata returns the data source type name.
@@ -54,6 +60,20 @@ func (d *deploymentDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 	resp.Schema = schema.Schema{
 		Description: "Retrieves information about an existing F5 ADS deployment by its ID.",
 		Attributes: map[string]schema.Attribute{
+			"aws_cloud_properties": schema.SingleNestedAttribute{
+				Computed:    true,
+				Description: "AWS networking properties for the deployment. Null for non-AWS deployments.",
+				Attributes: map[string]schema.Attribute{
+					"vpc_id": schema.StringAttribute{
+						Computed:    true,
+						Description: "AWS VPC ID of the deployment.",
+					},
+					"account_id": schema.StringAttribute{
+						Computed:    true,
+						Description: "AWS account ID hosting the deployment.",
+					},
+				},
+			},
 			"id": schema.StringAttribute{
 				Required:    true,
 				Description: "Unique identifier of the deployment to look up.",
@@ -318,6 +338,14 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		}
 		googleCloudProperties.Frontend = frontend
 		state.GoogleCloudProperties = &googleCloudProperties
+	}
+
+	state.AwsCloudProperties = nil
+	if aws := deploymentResponse.CloudProperties.Aws; aws != nil {
+		state.AwsCloudProperties = &awsDeploymentNetworkModel{
+			VpcID:     types.StringValue(aws.VpcId),
+			AccountID: types.StringValue(aws.AccountId),
+		}
 	}
 
 	// set state

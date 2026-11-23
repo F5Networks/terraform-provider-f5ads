@@ -404,7 +404,7 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 	if plan.GoogleCloudProperties != nil {
 		depGoogleCloudProperties := &deployments.CreateGoogleDeploymentProperties{
 			Region:            plan.GoogleCloudProperties.Region.ValueString(),
-			NetworkAttachment: plan.GoogleCloudProperties.NetworkAttachment.ValueString(),
+			NetworkAttachment: plan.GoogleCloudProperties.NetworkAttachment.ValueStringPointer(),
 			LogProjectId:      plan.GoogleCloudProperties.LogProjectId.ValueStringPointer(),
 			MetricProjectId:   plan.GoogleCloudProperties.MetricProjectId.ValueStringPointer(),
 		}
@@ -635,7 +635,10 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 	if deploymentResponse.CloudProperties.Google != nil {
 		var googleCloudProperties GoogleCloudPropertiesModel
 		googleCloudProperties.Region = types.StringValue(deploymentResponse.CloudProperties.Google.Region)
-		googleCloudProperties.NetworkAttachment = types.StringValue(deploymentResponse.CloudProperties.Google.NetworkAttachment)
+		googleCloudProperties.NetworkAttachment = types.StringNull()
+		if networkAttachment := deploymentResponse.CloudProperties.Google.NetworkAttachment; networkAttachment != nil {
+			googleCloudProperties.NetworkAttachment = types.StringValue(*networkAttachment)
+		}
 		googleCloudProperties.LogProjectId = types.StringNull()
 		if deploymentResponse.CloudProperties.Google.LogProjectId != nil {
 			googleCloudProperties.LogProjectId = types.StringValue(*deploymentResponse.CloudProperties.Google.LogProjectId)
@@ -1118,8 +1121,8 @@ func waitUntilDeploymentReady(
 	ctx context.Context,
 	c *deployments.ClientWithResponses,
 	deploymentObjectID *objects.ID,
-) (deployment *deployments.Deployment, err error) {
-	operation := func() (deployment *deployments.Deployment, err error) {
+) (*deployments.GetDeploymentResponse, error) {
+	operation := func() (*deployments.GetDeploymentResponse, error) {
 		resp, err := c.GetDeploymentWithResponse(ctx, *deploymentObjectID)
 		if err != nil {
 			return nil, backoff.Permanent(errors.New("unable to get deployment: " + err.Error()))
@@ -1148,24 +1151,24 @@ func waitUntilDeploymentReady(
 		}
 
 		if resp.StatusCode() == http.StatusOK && resp.JSON200 != nil {
-			deployment = resp.JSON200
-			if deployment.Status.ProvisioningState.State == deployments.Failed ||
-				deployment.Status.ConfigState.State == deployments.Failed {
+			deployment := resp.JSON200
+			if deployment.Status.ProvisioningState.State == deployments.DeploymentStateStateFailed ||
+				deployment.Status.ConfigState.State == deployments.DeploymentStateStateFailed {
 				return nil, backoff.Permanent(errors.New("deployment failed"))
 			}
-			if deployment.Status.ProvisioningState.State == deployments.Suspended {
+			if deployment.Status.ProvisioningState.State == deployments.DeploymentStateStateSuspended {
 				return nil, backoff.Permanent(errors.New("deployment suspended"))
 			}
-			if deployment.Status.ProvisioningState.State == deployments.Deleting {
+			if deployment.Status.ProvisioningState.State == deployments.DeploymentStateStateDeleting {
 				return nil, backoff.Permanent(errors.New("deployment deleting"))
 			}
-			if deployment.Status.ProvisioningState.State != deployments.Ready ||
-				deployment.Status.ConfigState.State != deployments.Ready {
+			if deployment.Status.ProvisioningState.State != deployments.DeploymentStateStateReady ||
+				deployment.Status.ConfigState.State != deployments.DeploymentStateStateReady {
 				return nil, errors.New("deployment is not in a ready state")
 			}
 		}
 
-		return deployment, nil
+		return resp, nil
 	}
 
 	result, err := backoff.Retry(ctx, operation, backoff.WithMaxElapsedTime(900*time.Second))

@@ -249,7 +249,10 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	if deploymentResponse.CloudProperties.Google != nil {
 		var googleCloudProperties GoogleCloudPropertiesModel
 		googleCloudProperties.Region = types.StringValue(deploymentResponse.CloudProperties.Google.Region)
-		googleCloudProperties.NetworkAttachment = types.StringValue(deploymentResponse.CloudProperties.Google.NetworkAttachment)
+		googleCloudProperties.NetworkAttachment = types.StringNull()
+		if deploymentResponse.CloudProperties.Google.NetworkAttachment != nil {
+			googleCloudProperties.NetworkAttachment = types.StringValue(*deploymentResponse.CloudProperties.Google.NetworkAttachment)
+		}
 		googleCloudProperties.LogProjectId = types.StringNull()
 		if deploymentResponse.CloudProperties.Google.LogProjectId != nil {
 			googleCloudProperties.LogProjectId = types.StringValue(*deploymentResponse.CloudProperties.Google.LogProjectId)

@@ -1,0 +1,1 @@
+terraform import f5ads_aws_private_endpoint_connection.endpoint_a 'dep_REPLACE_ME/vpce-0123456789abcdef0'

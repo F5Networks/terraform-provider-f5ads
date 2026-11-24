@@ -36,6 +36,52 @@ func randomNameSuffix() int {
 	return rand.Intn(100000000)
 }
 
+func awsAcceptanceProviderConfig(region string) string {
+	return fmt.Sprintf(`
+provider "aws" {
+  region = %q
+}
+
+data "aws_caller_identity" "current" {}
+`, region)
+}
+
+func baseAWSPrivateDeploymentConfig(nameSuffix int) string {
+	const region = "us-east-2"
+	return fmt.Sprintf(`
+%s
+
+%s
+
+%s
+
+resource "f5ads_deployment" "test" {
+  name                    = "nginxacc-%d"
+  capacity                = 10
+  nginx_config_id         = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
+  aws_cloud_properties = {
+    region          = %q
+    ipv4_cidr_block = "10.0.0.0/24"
+    frontend = {
+      private_endpoint = {}
+    }
+  }
+}
+`, providerConfig, baseNginxConfig(), awsAcceptanceProviderConfig(region), nameSuffix, region)
+}
+
+func baseAWSCustomerVPCConfig(nameSuffix int) string {
+	return fmt.Sprintf(`
+resource "aws_vpc" "test" {
+  cidr_block = "10.1.0.0/16"
+  tags = {
+    Name = "nginxacc-vpc-%d"
+  }
+}
+`, nameSuffix)
+}
+
 func baseGcpConfig(nameSuffix int) string {
 	return fmt.Sprintf(
 		`

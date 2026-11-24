@@ -27,6 +27,7 @@ data "f5ads_deployment" "example" {
 
 ### Read-Only
 
+- `aws_cloud_properties` (Attributes) AWS networking properties for the deployment. Null for non-AWS deployments. (see [below for nested schema](#nestedatt--aws_cloud_properties))
 - `capacity` (Number) Reserved capacity for the deployment, expressed in NCUs (NGINX Capacity Units).
 - `cloud` (String) Cloud provider hosting the deployment (e.g. "google").
 - `description` (String) Description of the deployment.
@@ -37,6 +38,15 @@ data "f5ads_deployment" "example" {
 - `nginx_version` (String) NGINX version for the deployment.
 - `organization_id` (String) Identifier of the organization that owns the deployment.
 - `waf_enabled` (Boolean) Whether F5 WAF for NGINX is enabled for the deployment.
+
+<a id="nestedatt--aws_cloud_properties"></a>
+### Nested Schema for `aws_cloud_properties`
+
+Read-Only:
+
+- `account_id` (String) AWS account ID hosting the deployment.
+- `vpc_id` (String) AWS VPC ID of the deployment.
+
 
 <a id="nestedatt--google_cloud_properties"></a>
 ### Nested Schema for `google_cloud_properties`

@@ -37,6 +37,7 @@ data "f5ads_deployment" "example" {
 - `nginx_version` (String) NGINX version for the deployment.
 - `organization_id` (String) Identifier of the organization that owns the deployment.
 - `waf_enabled` (Boolean) Whether F5 WAF for NGINX is enabled for the deployment.
+- `waf_version` (String) Version of F5 WAF for NGINX running on the deployment. Only populated when WAF is enabled.
 
 <a id="nestedatt--google_cloud_properties"></a>
 ### Nested Schema for `google_cloud_properties`

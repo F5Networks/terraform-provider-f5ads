@@ -78,11 +78,13 @@ type configResourceModel struct {
 	Payloads        []ConfigPayloadModel `tfsdk:"payloads"`
 }
 
-// ConfigPayloadModel references a managed certificate or its private key.
+// ConfigPayloadModel references a managed certificate, its private key, or an
+// externally stored secret such as an AWS Secrets Manager secret.
 type ConfigPayloadModel struct {
-	Type     types.String   `tfsdk:"type"`
-	ObjectID types.String   `tfsdk:"object_id"`
-	Paths    []types.String `tfsdk:"paths"`
+	Type         types.String   `tfsdk:"type"`
+	ObjectID     types.String   `tfsdk:"object_id"`
+	ResourceName types.String   `tfsdk:"resource_name"`
+	Paths        []types.String `tfsdk:"paths"`
 }
 
 // ConfigGroupModel represents a group of F5 ADS configuration files.
@@ -171,20 +173,34 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"payloads": schema.ListNestedAttribute{
 				Optional:    true,
-				Description: "Managed certificates and private keys to deploy with this configuration.",
+				Description: "Managed certificates, private keys, and AWS Secrets Manager secrets to deploy with this configuration.",
 				Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"type": schema.StringAttribute{
 							Required:    true,
-							Description: "Payload type: `managed_certificate` or `managed_key`.",
+							Description: "Payload type: `managed_certificate`, `managed_key`, or `aws_secrets_manager`. ",
 							Validators: []validator.String{
-								stringvalidator.OneOf(string(configs.NginxConfigPayloadManagedCertificate), string(configs.NginxConfigPayloadManagedKey)),
+								stringvalidator.OneOf(
+									string(configs.NginxConfigPayloadManagedCertificate),
+									string(configs.NginxConfigPayloadManagedKey),
+									string(configs.NginxConfigPayloadAwsSecretsManager),
+								),
 							},
 						},
 						"object_id": schema.StringAttribute{
 							Optional:    true,
-							Description: "ID of an `f5ads_certificate` resource.",
+							Description: "ID of an `f5ads_certificate` resource. Used with `managed_certificate` and `managed_key` payloads.",
+							Validators: []validator.String{
+								stringvalidator.ConflictsWith(path.MatchRelative().AtParent().AtName("resource_name")),
+							},
+						},
+						"resource_name": schema.StringAttribute{
+							Optional:    true,
+							Description: "ARN of the AWS Secrets Manager secret to deploy. Required for `aws_secrets_manager` payloads. ",
+							Validators: []validator.String{
+								stringvalidator.LengthAtLeast(1),
+							},
 						},
 						"paths": schema.ListAttribute{
 							Required:    true,
@@ -709,10 +725,15 @@ func payloadsToAPI(payloads []ConfigPayloadModel) (*configs.NGINXaaSConfigPayloa
 		for _, path := range payload.Paths {
 			paths = append(paths, path.ValueString())
 		}
+		var resourceName *string
+		if !payload.ResourceName.IsNull() && !payload.ResourceName.IsUnknown() {
+			resourceName = payload.ResourceName.ValueStringPointer()
+		}
 		result = append(result, configs.NGINXaaSConfigPayload{
-			Type:     configs.NGINXaaSConfigPayloadType(payload.Type.ValueString()),
-			ObjectId: objectID,
-			Paths:    paths,
+			Type:         configs.NGINXaaSConfigPayloadType(payload.Type.ValueString()),
+			ObjectId:     objectID,
+			ResourceName: resourceName,
+			Paths:        paths,
 		})
 	}
 	return &result, nil
@@ -736,10 +757,15 @@ func payloadsFromAPI(payloads *configs.NGINXaaSConfigPayloads, previous []Config
 		for _, path := range payload.Paths {
 			paths = append(paths, types.StringValue(path))
 		}
+		resourceName := types.StringNull()
+		if payload.ResourceName != nil && *payload.ResourceName != "" {
+			resourceName = types.StringValue(*payload.ResourceName)
+		}
 		result = append(result, ConfigPayloadModel{
-			Type:     types.StringValue(string(payload.Type)),
-			ObjectID: objectID,
-			Paths:    paths,
+			Type:         types.StringValue(string(payload.Type)),
+			ObjectID:     objectID,
+			ResourceName: resourceName,
+			Paths:        paths,
 		})
 	}
 	return result

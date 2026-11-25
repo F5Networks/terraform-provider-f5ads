@@ -53,6 +53,14 @@ type deploymentResourceModel struct {
 	NginxConfigVersionID  types.String                `tfsdk:"nginx_config_version_id"`
 	OrganizationID        types.String                `tfsdk:"organization_id"`
 	WafEnabled            types.Bool                  `tfsdk:"waf_enabled"`
+	WafVersion            types.String                `tfsdk:"waf_version"`
+}
+
+func wafVersionValue(status deployments.DeploymentStatus) types.String {
+	if status.WafVersion == nil || *status.WafVersion == "" {
+		return types.StringNull()
+	}
+	return types.StringValue(*status.WafVersion)
 }
 
 type GoogleCloudPropertiesModel struct {
@@ -165,6 +173,11 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"waf_enabled": schema.BoolAttribute{
 				Optional:    true,
 				Description: "Enables or disables F5 WAF for NGINX. Remove this field to disable WAF.",
+			},
+			"waf_version": schema.StringAttribute{
+				Computed: true,
+				Description: "Version of F5 WAF for NGINX running on the deployment. " +
+					"Only populated when WAF is enabled and the version has been reported by the deployment.",
 			},
 			"nginx_config_id": schema.StringAttribute{
 				Required:    true,
@@ -532,6 +545,7 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 	plan.Id = types.StringValue(deploymentResponse.Id.String())
 	plan.Cloud = types.StringValue(string(deploymentResponse.Cloud))
 	plan.NginxVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
+	plan.WafVersion = wafVersionValue(deploymentResponse.Status)
 	plan.OrganizationID = types.StringValue(deploymentResponse.OrganizationId.String())
 	if plan.GoogleCloudProperties != nil {
 		if plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint != nil {
@@ -632,6 +646,7 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 		wafEnabled = types.BoolValue(*deploymentResponse.WafEnabled)
 	}
 	state.WafEnabled = wafEnabled
+	state.WafVersion = wafVersionValue(deploymentResponse.Status)
 	if deploymentResponse.CloudProperties.Google != nil {
 		var googleCloudProperties GoogleCloudPropertiesModel
 		googleCloudProperties.Region = types.StringValue(deploymentResponse.CloudProperties.Google.Region)
@@ -961,6 +976,7 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 	plan.Id = types.StringValue(deploymentResponse.Id.String())
 	plan.Cloud = types.StringValue(string(deploymentResponse.Cloud))
 	plan.NginxVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
+	plan.WafVersion = wafVersionValue(deploymentResponse.Status)
 	plan.OrganizationID = types.StringValue(deploymentResponse.OrganizationId.String())
 	if plan.GoogleCloudProperties != nil {
 		if plan.GoogleCloudProperties.Frontend.ManagedPublicEndpoint != nil {

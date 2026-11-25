@@ -42,6 +42,7 @@ type deploymentDataSourceModel struct {
 	OrganizationID        types.String                `tfsdk:"organization_id"`
 	GoogleCloudProperties *GoogleCloudPropertiesModel `tfsdk:"google_cloud_properties"`
 	WafEnabled            types.Bool                  `tfsdk:"waf_enabled"`
+	WafVersion            types.String                `tfsdk:"waf_version"`
 }
 
 // Metadata returns the data source type name.
@@ -81,6 +82,10 @@ func (d *deploymentDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 			"waf_enabled": schema.BoolAttribute{
 				Computed:    true,
 				Description: "Whether F5 WAF for NGINX is enabled for the deployment.",
+			},
+			"waf_version": schema.StringAttribute{
+				Computed:    true,
+				Description: "Version of F5 WAF for NGINX running on the deployment. Only populated when WAF is enabled.",
 			},
 			"nginx_config_id": schema.StringAttribute{
 				Computed:    true,
@@ -243,6 +248,7 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	state.NginxVersion = types.StringValue(deploymentResponse.Status.NginxTargetVersion)
 	state.Capacity = types.Int64Value(int64(deploymentResponse.Scale.Capacity))
 	state.WafEnabled = types.BoolPointerValue(deploymentResponse.WafEnabled)
+	state.WafVersion = wafVersionValue(deploymentResponse.Status)
 	state.NginxConfigID = types.StringValue(deploymentResponse.NginxConfigId.String())
 	state.NginxConfigVersionID = types.StringValue(deploymentResponse.NginxConfigVersionId.String())
 	state.OrganizationID = types.StringValue(deploymentResponse.OrganizationId.String())

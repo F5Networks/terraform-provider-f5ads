@@ -240,6 +240,7 @@ func TestAccDeploymentResourceGoogleManagedPublicEndpoint(t *testing.T) {
 					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "nginx_version"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "10"),
 					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "waf_enabled"),
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "waf_version"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "google_cloud_properties.region", "us-east1"),
 					resource.TestCheckResourceAttr(
 						"f5ads_deployment.test",
@@ -515,6 +516,7 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "capacity", "10"),
 					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "description"),
 					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "waf_enabled"),
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "waf_version"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "cloud", "aws"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.region", "us-east-1"),
 					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.ipv4_cidr_block", "10.0.0.0/24"),

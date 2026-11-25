@@ -171,6 +171,7 @@ resource "f5ads_deployment" "aws_managed_public_endpoint" {
 - `id` (String) Unique identifier for the deployment, assigned by F5 ADS.
 - `nginx_version` (String) NGINX version for the deployment.
 - `organization_id` (String) Identifier of the organization that owns the deployment.
+- `waf_version` (String) Version of F5 WAF for NGINX running on the deployment. Only populated when WAF is enabled and the version has been reported by the deployment.
 
 <a id="nestedatt--aws_cloud_properties"></a>
 ### Nested Schema for `aws_cloud_properties`

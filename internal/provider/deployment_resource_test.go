@@ -752,6 +752,37 @@ func TestAccDeploymentResourceCloudExclusivityValidation(t *testing.T) {
 	})
 }
 
+func googleCloudDeploymentWithUnknownIdentity() string {
+	return fmt.Sprintf(`
+%s
+
+%s
+
+resource "terraform_data" "identity" {
+  input = "projects/my-project/locations/global/workloadIdentityPools/my-pool/providers/my-provider"
+}
+
+resource "f5ads_deployment" "test" {
+  name = "nginxacc-unknown-identity"
+  capacity = 10
+  nginx_config_id = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
+  google_cloud_properties = {
+	region = "us-east1"
+	network_attachment = "projects/my-project/regions/us-east1/networkAttachments/my-na"
+	identity = terraform_data.identity.output != "" ? {
+	  workload_identity_pool_provider_name = terraform_data.identity.output
+	} : null
+	frontend = {
+	  managed_public_endpoint = {
+		acl = []
+	  }
+	}
+  }
+}
+`, providerConfig, baseNginxConfig())
+}
+
 func TestAccDeploymentResourceGoogleFrontendValidation(t *testing.T) {
 	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -771,6 +802,12 @@ func TestAccDeploymentResourceGoogleFrontendValidation(t *testing.T) {
 				Config:      googleCloudDeploymentWithBothFrontendEndpoints(),
 				PlanOnly:    true,
 				ExpectError: regexp.MustCompile(`Only one of managed_public_endpoint or private_endpoint can be specified\s*within the frontend block of google_cloud_properties`),
+			},
+			{
+				// Unknown conditional identity object must plan without a conversion error.
+				Config:             googleCloudDeploymentWithUnknownIdentity(),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
 			},
 		},
 	})

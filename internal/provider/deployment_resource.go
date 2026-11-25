@@ -561,8 +561,12 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 			}
 		}
 		if plan.GoogleCloudProperties.Identity != nil {
-			plan.GoogleCloudProperties.Identity.NginxaasServiceAccountUniqueId = types.StringValue(
-				*deploymentResponse.CloudProperties.Google.Identity.NginxaasServiceAccountUniqueId)
+			plan.GoogleCloudProperties.Identity.NginxaasServiceAccountUniqueId = types.StringNull()
+			if deploymentResponse.CloudProperties.Google.Identity != nil &&
+				deploymentResponse.CloudProperties.Google.Identity.NginxaasServiceAccountUniqueId != nil {
+				plan.GoogleCloudProperties.Identity.NginxaasServiceAccountUniqueId = types.StringValue(
+					*deploymentResponse.CloudProperties.Google.Identity.NginxaasServiceAccountUniqueId)
+			}
 		}
 	}
 
@@ -990,8 +994,12 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 			}
 		}
 		if plan.GoogleCloudProperties.Identity != nil {
-			plan.GoogleCloudProperties.Identity.NginxaasServiceAccountUniqueId = types.StringValue(
-				*deploymentResponse.CloudProperties.Google.Identity.NginxaasServiceAccountUniqueId)
+			plan.GoogleCloudProperties.Identity.NginxaasServiceAccountUniqueId = types.StringNull()
+			if deploymentResponse.CloudProperties.Google.Identity != nil &&
+				deploymentResponse.CloudProperties.Google.Identity.NginxaasServiceAccountUniqueId != nil {
+				plan.GoogleCloudProperties.Identity.NginxaasServiceAccountUniqueId = types.StringValue(
+					*deploymentResponse.CloudProperties.Google.Identity.NginxaasServiceAccountUniqueId)
+			}
 		}
 	}
 
@@ -1089,14 +1097,20 @@ func (r *deploymentResource) ValidateConfig(
 	req resource.ValidateConfigRequest,
 	resp *resource.ValidateConfigResponse,
 ) {
-	var data deploymentResourceModel
-	diags := req.Config.Get(ctx, &data)
-	resp.Diagnostics.Append(diags...)
+	// Config values may be unknown during validation (from variables or conditional expressions),
+	// so read only the attributes needed as types.Object instead of decoding into struct pointers
+	var google, aws types.Object
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("google_cloud_properties"), &google)...)
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("aws_cloud_properties"), &aws)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if data.GoogleCloudProperties == nil && data.AwsCloudProperties == nil {
+	if google.IsUnknown() || aws.IsUnknown() {
+		return
+	}
+
+	if google.IsNull() && aws.IsNull() {
 		resp.Diagnostics.AddError(
 			"Invalid Configuration",
 			"Either google_cloud_properties or aws_cloud_properties must be specified.",
@@ -1104,7 +1118,7 @@ func (r *deploymentResource) ValidateConfig(
 		return
 	}
 
-	if data.GoogleCloudProperties != nil && data.AwsCloudProperties != nil {
+	if !google.IsNull() && !aws.IsNull() {
 		resp.Diagnostics.AddError(
 			"Invalid Configuration",
 			"Only one of google_cloud_properties or aws_cloud_properties can be specified.",
@@ -1112,15 +1126,25 @@ func (r *deploymentResource) ValidateConfig(
 		return
 	}
 
-	if data.GoogleCloudProperties != nil {
-		if data.GoogleCloudProperties.Frontend.ManagedPublicEndpoint == nil && data.GoogleCloudProperties.Frontend.PrivateEndpoint == nil {
+	if !google.IsNull() {
+		var mpe, pe types.Object
+		frontend := path.Root("google_cloud_properties").AtName("frontend")
+		resp.Diagnostics.Append(req.Config.GetAttribute(ctx, frontend.AtName("managed_public_endpoint"), &mpe)...)
+		resp.Diagnostics.Append(req.Config.GetAttribute(ctx, frontend.AtName("private_endpoint"), &pe)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		if mpe.IsUnknown() || pe.IsUnknown() {
+			return
+		}
+		if mpe.IsNull() && pe.IsNull() {
 			resp.Diagnostics.AddError(
 				"Invalid Configuration",
 				"Either managed_public_endpoint or private_endpoint must be specified within the frontend block of google_cloud_properties.",
 			)
 			return
 		}
-		if data.GoogleCloudProperties.Frontend.ManagedPublicEndpoint != nil && data.GoogleCloudProperties.Frontend.PrivateEndpoint != nil {
+		if !mpe.IsNull() && !pe.IsNull() {
 			resp.Diagnostics.AddError(
 				"Invalid Configuration",
 				"Only one of managed_public_endpoint or private_endpoint can be specified within the frontend block of google_cloud_properties.",

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -67,28 +69,33 @@ type configResource struct {
 
 // configResourceModel maps the resource schema data.
 type configResourceModel struct {
-	Id              types.String         `tfsdk:"id"`
-	Name            types.String         `tfsdk:"name"`
-	NamePrefix      types.String         `tfsdk:"name_prefix"`
-	Description     types.String         `tfsdk:"description"`
-	OrganizationID  types.String         `tfsdk:"organization_id"`
-	LatestVersionID types.String         `tfsdk:"latest_version_id"`
-	Configs         []ConfigGroupModel   `tfsdk:"configs"`
-	Aux             []ConfigGroupModel   `tfsdk:"aux"`
-	Payloads        []ConfigPayloadModel `tfsdk:"payloads"`
+	Id              types.String `tfsdk:"id"`
+	Name            types.String `tfsdk:"name"`
+	NamePrefix      types.String `tfsdk:"name_prefix"`
+	Description     types.String `tfsdk:"description"`
+	OrganizationID  types.String `tfsdk:"organization_id"`
+	LatestVersionID types.String `tfsdk:"latest_version_id"`
+	Configs         types.Set    `tfsdk:"configs"`
+	Aux             types.List   `tfsdk:"aux"`
+	Payloads        types.List   `tfsdk:"payloads"`
 }
 
 // ConfigPayloadModel references a managed certificate or its private key.
 type ConfigPayloadModel struct {
-	Type     types.String   `tfsdk:"type"`
-	ObjectID types.String   `tfsdk:"object_id"`
-	Paths    []types.String `tfsdk:"paths"`
+	Type     types.String `tfsdk:"type"`
+	ObjectID types.String `tfsdk:"object_id"`
+	Paths    types.List   `tfsdk:"paths"`
 }
 
 // ConfigGroupModel represents a group of F5 ADS configuration files.
 type ConfigGroupModel struct {
-	Name  types.String      `tfsdk:"name"`
-	Files []ConfigFileModel `tfsdk:"files"`
+	Name  types.String `tfsdk:"name"`
+	Files types.Set    `tfsdk:"files"`
+}
+
+type AuxGroupModel struct {
+	Name  types.String `tfsdk:"name"`
+	Files types.List   `tfsdk:"files"`
 }
 
 // ConfigFileModel represents a single F5 ADS configuration file.
@@ -96,6 +103,27 @@ type ConfigFileModel struct {
 	Name     types.String `tfsdk:"name"`
 	Contents types.String `tfsdk:"contents"`
 }
+
+var configFileType = types.ObjectType{AttrTypes: map[string]attr.Type{
+	"name":     types.StringType,
+	"contents": types.StringType,
+}}
+
+var configGroupType = types.ObjectType{AttrTypes: map[string]attr.Type{
+	"name":  types.StringType,
+	"files": types.SetType{ElemType: configFileType},
+}}
+
+var auxGroupType = types.ObjectType{AttrTypes: map[string]attr.Type{
+	"name":  types.StringType,
+	"files": types.ListType{ElemType: configFileType},
+}}
+
+var configPayloadType = types.ObjectType{AttrTypes: map[string]attr.Type{
+	"type":      types.StringType,
+	"object_id": types.StringType,
+	"paths":     types.ListType{ElemType: types.StringType},
+}}
 
 // Metadata returns the name of the resource.
 func (r *configResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -340,7 +368,7 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 		plan.Name = types.StringValue(name)
 	}
 
-	nginxCfg, err := configRequestFromModel(&plan)
+	nginxCfg, err := configRequestFromModel(ctx, &plan)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to parse NGINX configuration files",
@@ -348,7 +376,7 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 		)
 		return
 	}
-	payloads, err := payloadsToAPI(plan.Payloads)
+	payloads, err := payloadsToAPI(ctx, plan.Payloads)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to encode F5 ADS configuration payloads", err.Error())
 		return
@@ -531,9 +559,21 @@ func (r *configResource) fetchConfigVersion(
 		return false
 	}
 
-	model.Configs = configsFromAPI(version.JSON200.Configs)
-	model.Aux = auxFromAPI(version.JSON200.Aux)
-	model.Payloads = payloadsFromAPI(version.JSON200.Payloads, model.Payloads)
+	model.Configs, err = configsFromAPI(ctx, version.JSON200.Configs)
+	if err != nil {
+		diags.AddError("Unable to decode NGINX configuration files", err.Error())
+		return false
+	}
+	model.Aux, err = auxFromAPI(ctx, version.JSON200.Aux)
+	if err != nil {
+		diags.AddError("Unable to decode auxiliary files", err.Error())
+		return false
+	}
+	model.Payloads, err = payloadsFromAPI(ctx, version.JSON200.Payloads, model.Payloads)
+	if err != nil {
+		diags.AddError("Unable to decode configuration payloads", err.Error())
+		return false
+	}
 
 	return true
 }
@@ -563,7 +603,7 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	nginxCfg, err := configRequestFromModel(&plan)
+	nginxCfg, err := configRequestFromModel(ctx, &plan)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to parse NGINX configuration files",
@@ -578,13 +618,13 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		description = &empty
 	}
 
-	payloads, err := payloadsToAPI(plan.Payloads)
+	payloads, err := payloadsToAPI(ctx, plan.Payloads)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to encode F5 ADS configuration payloads", err.Error())
 		return
 	}
 	// Clear previously configured payloads when the attribute is removed.
-	if payloads == nil && len(state.Payloads) > 0 {
+	if payloads == nil && len(state.Payloads.Elements()) > 0 {
 		empty := configs.NGINXaaSConfigPayloads{}
 		payloads = &empty
 	}
@@ -691,8 +731,12 @@ func generateNameWithPrefix(prefix string) (string, error) {
 }
 
 // payloadsToAPI converts the Terraform payload models into the API request representation.
-func payloadsToAPI(payloads []ConfigPayloadModel) (*configs.NGINXaaSConfigPayloads, error) {
-	if payloads == nil {
+func payloadsToAPI(ctx context.Context, value types.List) (*configs.NGINXaaSConfigPayloads, error) {
+	var payloads []ConfigPayloadModel
+	if err := collectionElementsAs(ctx, value, &payloads); err != nil {
+		return nil, err
+	}
+	if value.IsNull() {
 		return nil, nil
 	}
 	result := make(configs.NGINXaaSConfigPayloads, 0, len(payloads))
@@ -705,9 +749,9 @@ func payloadsToAPI(payloads []ConfigPayloadModel) (*configs.NGINXaaSConfigPayloa
 				return nil, fmt.Errorf("unable to parse payload object_id: %w", err)
 			}
 		}
-		paths := make([]string, 0, len(payload.Paths))
-		for _, path := range payload.Paths {
-			paths = append(paths, path.ValueString())
+		paths, err := stringListToAPI(ctx, payload.Paths)
+		if err != nil {
+			return nil, fmt.Errorf("payload paths: %w", err)
 		}
 		result = append(result, configs.NGINXaaSConfigPayload{
 			Type:     configs.NGINXaaSConfigPayloadType(payload.Type.ValueString()),
@@ -719,12 +763,12 @@ func payloadsToAPI(payloads []ConfigPayloadModel) (*configs.NGINXaaSConfigPayloa
 }
 
 // payloadsFromAPI converts the payloads returned by the API into Terraform models.
-func payloadsFromAPI(payloads *configs.NGINXaaSConfigPayloads, previous []ConfigPayloadModel) []ConfigPayloadModel {
+func payloadsFromAPI(ctx context.Context, payloads *configs.NGINXaaSConfigPayloads, previous types.List) (types.List, error) {
 	if payloads == nil || len(*payloads) == 0 {
-		if previous == nil {
-			return nil
+		if previous.IsNull() {
+			return types.ListNull(configPayloadType), nil
 		}
-		return []ConfigPayloadModel{}
+		return types.ListValueMust(configPayloadType, nil), nil
 	}
 	result := make([]ConfigPayloadModel, 0, len(*payloads))
 	for _, payload := range *payloads {
@@ -732,27 +776,24 @@ func payloadsFromAPI(payloads *configs.NGINXaaSConfigPayloads, previous []Config
 		if payload.ObjectId != nil {
 			objectID = types.StringValue(payload.ObjectId.String())
 		}
-		paths := make([]types.String, 0, len(payload.Paths))
-		for _, path := range payload.Paths {
-			paths = append(paths, types.StringValue(path))
-		}
 		result = append(result, ConfigPayloadModel{
 			Type:     types.StringValue(string(payload.Type)),
 			ObjectID: objectID,
-			Paths:    paths,
+			Paths:    stringListFromAPI(payload.Paths),
 		})
 	}
-	return result
+	value, diags := types.ListValueFrom(ctx, configPayloadType, result)
+	return value, diagnosticsError(diags)
 }
 
 // configRequestFromModel builds the NGINX config request body from the
 // Terraform model.
-func configRequestFromModel(model *configResourceModel) (configs.NGINXaaSConfigRequest, error) {
-	configDirs, err := configsToAPI(model.Configs)
+func configRequestFromModel(ctx context.Context, model *configResourceModel) (configs.NGINXaaSConfigRequest, error) {
+	configDirs, err := configsToAPI(ctx, model.Configs)
 	if err != nil {
 		return configs.NGINXaaSConfigRequest{}, err
 	}
-	auxDirs, err := configsToAPI(model.Aux)
+	auxDirs, err := auxToAPI(ctx, model.Aux)
 	if err != nil {
 		return configs.NGINXaaSConfigRequest{}, fmt.Errorf("aux: %w", err)
 	}
@@ -765,43 +806,44 @@ func configRequestFromModel(model *configResourceModel) (configs.NGINXaaSConfigR
 }
 
 // auxFromAPI converts the aux groups returned by the API into the Terraform model.
-func auxFromAPI(dirs *[]naas.DirectoryWithFileContent) []ConfigGroupModel {
+func auxFromAPI(ctx context.Context, dirs *[]naas.DirectoryWithFileContent) (types.List, error) {
 	if dirs == nil || len(*dirs) == 0 {
-		return nil
+		return types.ListNull(auxGroupType), nil
 	}
-	groups := configsFromAPI(*dirs)
-	for i := range groups {
-		for j := range groups[i].Files {
-			if groups[i].Files[j].Contents.ValueString() == "" {
-				groups[i].Files[j].Contents = types.StringNull()
+	groups := make([]AuxGroupModel, 0, len(*dirs))
+	for _, dir := range *dirs {
+		files := configFilesFromAPI(dir.Files)
+		for i := range files {
+			if files[i].Contents.ValueString() == "" {
+				files[i].Contents = types.StringNull()
 			}
 		}
+		value, diags := types.ListValueFrom(ctx, configFileType, files)
+		if err := diagnosticsError(diags); err != nil {
+			return types.ListNull(auxGroupType), err
+		}
+		groups = append(groups, AuxGroupModel{Name: types.StringValue(dir.Name), Files: value})
 	}
-	return groups
+	value, diags := types.ListValueFrom(ctx, auxGroupType, groups)
+	return value, diagnosticsError(diags)
 }
 
 // configsToAPI converts the configuration file groups from the Terraform
 // model into the API request representation.
-func configsToAPI(groups []ConfigGroupModel) ([]naas.DirectoryRequestWithFileContent, error) {
+func configsToAPI(ctx context.Context, value types.Set) ([]naas.DirectoryRequestWithFileContent, error) {
+	var groups []ConfigGroupModel
+	if err := collectionElementsAs(ctx, value, &groups); err != nil {
+		return nil, err
+	}
 	dirs := make([]naas.DirectoryRequestWithFileContent, 0, len(groups))
 	for _, group := range groups {
-		files := make([]naas.FileDataRequest, 0, len(group.Files))
-		for _, file := range group.Files {
-			if file.Contents.IsNull() {
-				files = append(files, naas.FileDataRequest{Name: file.Name.ValueString()})
-				continue
-			}
-			contents, err := base64.StdEncoding.DecodeString(file.Contents.ValueString())
-			if err != nil {
-				return nil, fmt.Errorf(
-					"file %q in directory %q does not contain valid base64 content: %w",
-					file.Name.ValueString(), group.Name.ValueString(), err,
-				)
-			}
-			files = append(files, naas.FileDataRequest{
-				Name:     file.Name.ValueString(),
-				Contents: &contents,
-			})
+		var models []ConfigFileModel
+		if err := collectionElementsAs(ctx, group.Files, &models); err != nil {
+			return nil, fmt.Errorf("directory %q files: %w", group.Name.ValueString(), err)
+		}
+		files, err := configFilesToAPI(models, group.Name.ValueString())
+		if err != nil {
+			return nil, err
 		}
 		dirs = append(dirs, naas.DirectoryRequestWithFileContent{
 			Name:  group.Name.ValueString(),
@@ -811,22 +853,110 @@ func configsToAPI(groups []ConfigGroupModel) ([]naas.DirectoryRequestWithFileCon
 	return dirs, nil
 }
 
+func auxToAPI(ctx context.Context, value types.List) ([]naas.DirectoryRequestWithFileContent, error) {
+	var groups []AuxGroupModel
+	if err := collectionElementsAs(ctx, value, &groups); err != nil {
+		return nil, err
+	}
+	dirs := make([]naas.DirectoryRequestWithFileContent, 0, len(groups))
+	for _, group := range groups {
+		var models []ConfigFileModel
+		if err := collectionElementsAs(ctx, group.Files, &models); err != nil {
+			return nil, fmt.Errorf("directory %q files: %w", group.Name.ValueString(), err)
+		}
+		files, err := configFilesToAPI(models, group.Name.ValueString())
+		if err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, naas.DirectoryRequestWithFileContent{
+			Name:  group.Name.ValueString(),
+			Files: files,
+		})
+	}
+	return dirs, nil
+}
+
+func configFilesToAPI(models []ConfigFileModel, directory string) ([]naas.FileDataRequest, error) {
+	files := make([]naas.FileDataRequest, 0, len(models))
+	for _, file := range models {
+		if file.Contents.IsNull() {
+			files = append(files, naas.FileDataRequest{Name: file.Name.ValueString()})
+			continue
+		}
+		contents, err := base64.StdEncoding.DecodeString(file.Contents.ValueString())
+		if err != nil {
+			return nil, fmt.Errorf(
+				"file %q in directory %q does not contain valid base64 content: %w",
+				file.Name.ValueString(), directory, err,
+			)
+		}
+		files = append(files, naas.FileDataRequest{
+			Name:     file.Name.ValueString(),
+			Contents: &contents,
+		})
+	}
+	return files, nil
+}
+
 // configsFromAPI converts the configuration file groups returned by the API
 // into the Terraform model.
-func configsFromAPI(dirs []naas.DirectoryWithFileContent) []ConfigGroupModel {
+func configsFromAPI(ctx context.Context, dirs []naas.DirectoryWithFileContent) (types.Set, error) {
 	groups := make([]ConfigGroupModel, 0, len(dirs))
 	for _, dir := range dirs {
-		files := make([]ConfigFileModel, 0, len(dir.Files))
-		for _, file := range dir.Files {
-			files = append(files, ConfigFileModel{
-				Name:     types.StringValue(file.Name),
-				Contents: types.StringValue(base64.StdEncoding.EncodeToString(file.Contents)),
-			})
+		files, diags := types.SetValueFrom(ctx, configFileType, configFilesFromAPI(dir.Files))
+		if err := diagnosticsError(diags); err != nil {
+			return types.SetNull(configGroupType), err
 		}
 		groups = append(groups, ConfigGroupModel{
 			Name:  types.StringValue(dir.Name),
 			Files: files,
 		})
 	}
-	return groups
+	value, diags := types.SetValueFrom(ctx, configGroupType, groups)
+	return value, diagnosticsError(diags)
+}
+
+func configFilesFromAPI(files []naas.FileData) []ConfigFileModel {
+	models := make([]ConfigFileModel, 0, len(files))
+	for _, file := range files {
+		models = append(models, ConfigFileModel{
+			Name:     types.StringValue(file.Name),
+			Contents: types.StringValue(base64.StdEncoding.EncodeToString(file.Contents)),
+		})
+	}
+	return models
+}
+
+func diagnosticsError(diags diag.Diagnostics) error {
+	var errs []error
+	for _, diagnostic := range diags.Errors() {
+		errs = append(errs, fmt.Errorf("%s: %s", diagnostic.Summary(), diagnostic.Detail()))
+	}
+	return errors.Join(errs...)
+}
+
+// API requests must never replace unknown collections or elements with zero values.
+func collectionElementsAs(ctx context.Context, value interface {
+	ElementsAs(context.Context, interface{}, bool) diag.Diagnostics
+}, target interface{}) error {
+	return diagnosticsError(value.ElementsAs(ctx, target, false))
+}
+
+func stringListToAPI(ctx context.Context, value types.List) ([]string, error) {
+	values := make([]string, 0)
+	if err := collectionElementsAs(ctx, value, &values); err != nil {
+		return nil, err
+	}
+	if values == nil {
+		values = []string{}
+	}
+	return values, nil
+}
+
+func stringListFromAPI(values []string) types.List {
+	elements := make([]attr.Value, 0, len(values))
+	for _, value := range values {
+		elements = append(elements, types.StringValue(value))
+	}
+	return types.ListValueMust(types.StringType, elements)
 }

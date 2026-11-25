@@ -591,6 +591,163 @@ func TestAccDeploymentResourceAWSManagedPublicEndpoint(t *testing.T) {
 	})
 }
 
+// awsCloudWatchMonitoringConfig creates the CloudWatch log groups and IAM role that the
+// deployment exports to, plus a deployment with the given monitoring block.
+func awsCloudWatchMonitoringConfig(nameSuffix int, monitoring string) string {
+	return providerConfig + awsAcceptanceProviderConfig("us-east-1") + baseNginxConfig() + fmt.Sprintf(`
+resource "aws_cloudwatch_log_group" "logs" {
+  name              = "/f5ads/acc/%[1]d/logs"
+  retention_in_days = 1
+  tags = {
+    Name = "nginxacc-logs-%[1]d"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "metrics" {
+  name              = "/f5ads/acc/%[1]d/metrics"
+  retention_in_days = 1
+  tags = {
+    Name = "nginxacc-metrics-%[1]d"
+  }
+}
+
+resource "aws_iam_role" "cloudwatch" {
+  name = "nginxacc-cw-%[1]d"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = "sts:AssumeRole"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "cloudwatch" {
+  name = "nginxacc-cw-%[1]d"
+  role = aws_iam_role.cloudwatch.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams",
+        ]
+        Resource = [
+          aws_cloudwatch_log_group.logs.arn,
+          "${aws_cloudwatch_log_group.logs.arn}:*",
+          aws_cloudwatch_log_group.metrics.arn,
+          "${aws_cloudwatch_log_group.metrics.arn}:*",
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["cloudwatch:PutMetricData"]
+        Resource = "*"
+      },
+    ]
+  })
+}
+
+resource "f5ads_deployment" "test" {
+  name                    = "nginxacc-%[1]d"
+  capacity                = 10
+  nginx_config_id         = f5ads_configuration.test.id
+  nginx_config_version_id = f5ads_configuration.test.latest_version_id
+  aws_cloud_properties = {
+    region          = "us-east-1"
+    ipv4_cidr_block = "10.0.0.0/24"
+    identity = {
+      customer_role_arn = aws_iam_role.cloudwatch.arn
+    }
+    frontend = {
+      managed_public_endpoint = {
+        acl = [
+          {
+            source_prefixes = ["0.0.0.0/0"]
+            port_range      = "80"
+            protocol        = "tcp"
+          }
+        ]
+      }
+    }
+    %[2]s
+  }
+
+  depends_on = [aws_iam_role_policy.cloudwatch]
+}
+`, nameSuffix, monitoring)
+}
+
+const awsMonitoringLogsAndMetrics = `monitoring = {
+      logs = {
+        enabled          = true
+        cloudwatch_group = aws_cloudwatch_log_group.logs.name
+      }
+      metrics = {
+        enabled          = true
+        cloudwatch_group = aws_cloudwatch_log_group.metrics.name
+      }
+    }`
+
+const awsMonitoringLogsOnly = `monitoring = {
+      logs = {
+        enabled          = true
+        cloudwatch_group = aws_cloudwatch_log_group.logs.name
+      }
+    }`
+
+func TestAccDeploymentResourceAWSCloudWatchMonitoring(t *testing.T) {
+	nameSuffix := randomNameSuffix()
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		ExternalProviders: map[string]resource.ExternalProvider{
+			"aws": {Source: "hashicorp/aws", VersionConstraint: "~> 6.0"},
+		},
+		Steps: []resource.TestStep{
+			// Create with logs and metrics export enabled.
+			{
+				Config: awsCloudWatchMonitoringConfig(nameSuffix, awsMonitoringLogsAndMetrics),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("aws_cloudwatch_log_group.logs", "tags.Name", fmt.Sprintf("nginxacc-logs-%d", nameSuffix)),
+					resource.TestCheckResourceAttr("aws_cloudwatch_log_group.metrics", "tags.Name", fmt.Sprintf("nginxacc-metrics-%d", nameSuffix)),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "cloud", "aws"),
+					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "aws_cloud_properties.identity.customer_role_arn", "aws_iam_role.cloudwatch", "arn"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.logs.enabled", "true"),
+					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "aws_cloud_properties.monitoring.logs.cloudwatch_group", "aws_cloudwatch_log_group.logs", "name"),
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.metrics.enabled", "true"),
+					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "aws_cloud_properties.monitoring.metrics.cloudwatch_group", "aws_cloudwatch_log_group.metrics", "name"),
+					resource.TestCheckResourceAttrSet("f5ads_deployment.test", "id"),
+				),
+			},
+			{
+				ResourceName:      "f5ads_deployment.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			// Logs only, metrics export disabled by omission.
+			{
+				Config: awsCloudWatchMonitoringConfig(nameSuffix, awsMonitoringLogsOnly),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.logs.enabled", "true"),
+					resource.TestCheckResourceAttrPair("f5ads_deployment.test", "aws_cloud_properties.monitoring.logs.cloudwatch_group", "aws_cloudwatch_log_group.logs", "name"),
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring.metrics"),
+				),
+			},
+			// Removing the monitoring block disables telemetry export.
+			{
+				Config: awsCloudWatchMonitoringConfig(nameSuffix, ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("f5ads_deployment.test", "aws_cloud_properties.monitoring"),
+				),
+			},
+		},
+	})
+}
+
 func TestAccDeploymentResourceGooglePrivateEndpoint(t *testing.T) {
 	nameSuffix := randomNameSuffix()
 	gcpProject := os.Getenv("GOOGLE_PROJECT")

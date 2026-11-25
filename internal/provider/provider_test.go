@@ -36,6 +36,16 @@ func randomNameSuffix() int {
 	return rand.Intn(100000000)
 }
 
+func awsAcceptanceProviderConfig(region string) string {
+	return fmt.Sprintf(`
+provider "aws" {
+  region = %q
+}
+
+data "aws_caller_identity" "current" {}
+`, region)
+}
+
 func baseGcpConfig(nameSuffix int) string {
 	return fmt.Sprintf(
 		`
